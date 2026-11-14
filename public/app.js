@@ -59,6 +59,9 @@
   /* ---------- render ---------- */
   function render() {
     const live = S.live, tax = S.sellTaxBps / 100;
+    const every = S.dropMinutes === 60 ? "hour" : S.dropMinutes + " minutes";
+    $("howDrop").textContent = `Every ${every}, the pot is swapped to USDC and split by holdings.`;
+    $("dropsLead").textContent = `One every ${every}. Every payment is an on-chain transaction you can check.`;
     $("net").hidden = S.cluster !== "devnet" && !S.demo;
     $("net").textContent = S.demo ? "sample data" : "devnet";
     $("line").textContent = `Paper hands pay ${tax}%. Diamond hands split it in USDC every ${S.dropMinutes === 60 ? "hour" : S.dropMinutes + " minutes"}. A ponzi game. No promised returns.` + (live ? "" : " Launching soon.");
@@ -110,7 +113,7 @@
       const pot = potShown || 0;
       $("eyebrow").textContent = "Airdrop";
       $("clock").classList.add("paid");
-      $("clock").textContent = pot > 0 ? `Paying ${usd(pot)} to holders` : "Nothing sold this hour";
+      $("clock").textContent = pot > 0 ? `Paying ${usd(pot)} to holders` : "Nothing sold this round";
       setTimeout(() => { celebrating = false; $("clock").classList.remove("paid"); $("eyebrow").textContent = "Next airdrop in"; load(); }, 4000);
     }
   }
