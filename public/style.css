@@ -59,12 +59,22 @@ section.view.on { display: block; }
 .cta { display: flex; gap: 10px; justify-content: center; margin-top: 28px; }
 .cta .btn { min-width: 120px; }
 
+/* hour progress: one hairline that fills as the hour runs out */
+.hourbar { width: min(220px, 60%); height: 2px; background: var(--line); border-radius: 2px; margin: -4px auto 22px; overflow: hidden; }
+.hourbar > div { height: 100%; width: 0; background: var(--muted); border-radius: 2px; transition: width 1s linear; }
+.pot { position: relative; display: inline-block; }
+.pot .bump { position: absolute; left: 100%; top: 2px; margin-left: 10px; font: 500 15px var(--mono); color: var(--mint); opacity: 0; white-space: nowrap; }
+.pot .bump.show { animation: bump 2.4s ease-out; }
+@keyframes bump { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }
+
 /* your share strip */
 .mine { margin: 30px auto 0; max-width: 520px; background: var(--surface); border-radius: 14px; padding: 16px 18px; text-align: left; }
-.mine .row1 { display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; align-items: baseline; }
-.mine .est { font: 500 22px var(--mono); color: var(--mint); }
-.mine .meta { color: var(--muted); font-size: 13px; }
-.mine .meta b { color: var(--text); font: 500 13px var(--mono); }
+.mine .cut { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mine .est { font: 500 24px var(--mono); color: var(--mint); }
+.mine .lbl { color: var(--muted); font-size: 13px; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.facts b { display: block; font: 500 15px var(--mono); }
+.facts span { color: var(--muted); font-size: 12px; }
 .streak { height: 3px; background: var(--line); border-radius: 3px; margin-top: 14px; overflow: hidden; }
 .streak > div { height: 100%; background: var(--mint); border-radius: 3px; transition: width .6s; }
 .streak-l { display: flex; justify-content: space-between; color: var(--dim); font: 400 11px var(--mono); margin-top: 6px; }
@@ -125,7 +135,13 @@ dialog#tradeDlg::backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: blu
 .dlg-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin: 18px 0 8px; }
 .dlg-label button { background: none; border: 0; color: var(--mint); cursor: pointer; font-size: 12px; padding: 0; }
 .field.big input { font-size: 24px; padding: 10px 0; }
+.chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.chips button { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; color: var(--muted); cursor: pointer; font: 500 12px var(--mono); }
+.chips button:hover { color: var(--text); border-color: #33373d; }
+.warn { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(251, 191, 36, .08); color: #e9c46a; font-size: 13px; }
 .quote { margin-top: 14px; font-size: 14px; min-height: 42px; }
+.quote .impact { color: var(--dim); font-size: 12px; }
+.quote .impact.high { color: #e9c46a; }
 .quote .n { font-size: 17px; font-weight: 500; }
 .btn.wide { width: 100%; margin-top: 16px; padding: 13px; }
 
@@ -150,6 +166,11 @@ dialog#tradeDlg::backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: blu
   .dock .btn { flex: 1; }
   #toast { bottom: 84px; }
   h1 { font-size: 28px; margin-top: 30px; }
+}
+@media (max-width: 420px) {
+  .totals { grid-template-columns: 1fr; gap: 10px; }
+  .totals > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .facts b { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ticker .track { animation: none; }

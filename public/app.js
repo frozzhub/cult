@@ -47,6 +47,7 @@
     if (potShown === null || matchMedia("(prefers-reduced-motion: reduce)").matches) { potShown = v; el.textContent = usd(v); return; }
     const from = potShown, t0 = performance.now();
     potShown = v;
+    if (v - from >= 0.01) { const b = $("potBump"); b.textContent = "+" + usd(v - from); b.classList.remove("show"); void b.offsetWidth; b.classList.add("show"); }
     const step = (t) => {
       const k = Math.min(1, (t - t0) / 600), e = 1 - (1 - k) ** 3;
       el.textContent = usd(from + (v - from) * e);
@@ -103,6 +104,7 @@
     const ms = Math.max(0, Date.parse(S.nextDropAt) - Date.now());
     const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000);
     $("clock").textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    $("hourFill").style.width = (100 - (ms / (S.dropMinutes * 60_000)) * 100).toFixed(2) + "%";
     if (ms === 0) {
       celebrating = true;
       const pot = potShown || 0;
@@ -272,21 +274,35 @@
     $("amtL").textContent = s === "buy" ? "You pay" : "You sell";
     $("amtUnit").textContent = s === "buy" ? "SOL" : "$" + S.ticker;
     $("tradeGo").textContent = s === "buy" ? "Buy" : "Sell";
-    $("maxBtn").hidden = !(s === "sell" && W?.balance > 0);
+    renderChips();
     $("amtIn").value = "";
     renderQuote();
   }
-  $("maxBtn").addEventListener("click", () => { $("amtIn").value = String(Math.floor(W.balance)); renderQuote(); });
+  // Quick amounts: SOL sizes for buys, a share of your bag for sells.
+  function renderChips() {
+    const bal = W?.balance > 0 ? W.balance : 0;
+    const opts = side === "buy" ? [["0.1 SOL", 0.1], ["0.5 SOL", 0.5], ["1 SOL", 1], ["5 SOL", 5]]
+      : bal ? [["25%", bal / 4], ["50%", bal / 2], ["Max", bal]] : [];
+    $("chips").innerHTML = opts.map(([l, v]) => `<button type="button" data-v="${v}">${l}</button>`).join("");
+  }
+  $("chips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; const v = Number(b.dataset.v); $("amtIn").value = side === "buy" ? String(v) : String(Math.floor(v)); renderQuote(); });
+  const impact = (p) => (p < 0.5 ? "" : `<div class="impact${p >= 10 ? " high" : ""}">Price impact ${p.toFixed(p < 10 ? 1 : 0)}%</div>`);
   function renderQuote() {
     const q = $("quoteOut"), amt = Number($("amtIn").value.replace(/,/g, ""));
     $("tradeGo").disabled = !(amt > 0 && pool);
+    // Selling resets the streak: say what that costs before they do it.
+    const warn = $("streakWarn");
+    warn.hidden = !(side === "sell" && W?.streakDays > 0);
+    if (!warn.hidden) warn.textContent = `Selling resets your ${W.streakDays}-day streak${W.multiplier > 1 ? ` and your ${W.multiplier}× boost` : ""}. You start again at 1×.`;
     if (!(amt > 0) || !pool) { q.innerHTML = ""; return; }
     const sol = Number(pool.solReserve) / 1e9, tok = Number(pool.tokenReserve) / 10 ** pool.decimals;
     if (side === "buy") {
-      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">No tax on buys.</div>`;
+      const imp = (amt / (sol + amt)) * 100;
+      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">No tax on buys.</div>${impact(imp)}`;
     } else {
       const gross = (amt * sol) / (tok + amt), fee = (gross * pool.feeBps) / 10_000;
-      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="mint mono">${fee.toFixed(4)} SOL</span> of it goes to the holders.</div>`;
+      const imp = (amt / (tok + amt)) * 100;
+      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="mint mono">${fee.toFixed(4)} SOL</span> of it goes to the holders.</div>${impact(imp)}`;
     }
   }
   $("sideSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setSide(b.dataset.v); });
