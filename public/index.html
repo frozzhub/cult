@@ -62,10 +62,28 @@
       </div>
     </div>
 
+    <section class="market" id="market" hidden aria-labelledby="priceTitle">
+      <div class="mhead">
+        <div>
+          <div class="mlabel" id="priceTitle">$PAPER price</div>
+          <div class="price"><span class="n" id="priceN"></span><span class="chg" id="priceChg"></span></div>
+        </div>
+        <div class="seg" id="rangeSeg" role="group" aria-label="Chart range">
+          <button data-r="24h" class="on">24H</button><button data-r="7d">7D</button><button data-r="all">All</button>
+        </div>
+      </div>
+      <div class="chart" id="chart" tabindex="0" role="img" aria-describedby="chartTable">
+        <svg id="chartSvg" aria-hidden="true"></svg>
+        <div class="tip" id="tip" hidden><b id="tipV"></b><span id="tipT"></span></div>
+      </div>
+      <table class="sr-only" id="chartTable"><caption>$PAPER price over the selected range</caption><thead><tr><th>Time</th><th>Price (USD)</th></tr></thead><tbody></tbody></table>
+    </section>
+
     <div class="totals" id="totals" hidden>
-      <div id="tPaid"><div class="n mint" id="paidN"></div><div class="l">paid to holders, all time</div></div>
-      <div id="tHolders"><div class="n" id="holdersN"></div><div class="l">holders in the last airdrop</div></div>
-      <div id="tDrops"><div class="n" id="dropsN"></div><div class="l">airdrops so far</div></div>
+      <div id="tVol"><div class="n" id="volN"></div><div class="l">total volume</div></div>
+      <div id="tPaid"><div class="n mint" id="paidN"></div><div class="l">USDC airdropped to holders</div></div>
+      <div id="tHolders"><div class="n" id="holdersN"></div><div class="l">holders in the last round</div></div>
+      <div id="tDrops"><div class="n" id="dropsN"></div><div class="l">rounds paid</div></div>
     </div>
 
     <div class="how">
@@ -126,6 +144,7 @@
 </dialog>
 
 <div id="toast" hidden></div>
+<script src="chart.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

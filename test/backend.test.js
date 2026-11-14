@@ -121,3 +121,29 @@ test("rpc fails over to the next endpoint when one is throttled", async () => {
   assert.equal(await rpc({ SOLANA_RPC_URL: "https://a.test,https://b.test" }, "getSlot", []), 7);
   assert.deepEqual(hits, ["https://a.test", "https://b.test"]);
 });
+test("parseTrade: buys and sells through the pool, priced after the trade; seeding the pool isn't a trade", async () => {
+  const { parseTrade, POOL_RENT } = await import("../src/indexer.js");
+  // sell: pool +5 $PAPER (raw 5e6), pool SOL 5e9 -> 4e9
+  const sell = parseTrade("s", rpcTx(), cfg);
+  assert.equal(sell.side, "sell");
+  assert.equal(sell.sol, 1e9);
+  assert.ok(Math.abs(sell.priceSol - ((4e9 - POOL_RENT) / 1e9) / (5_000_100 / 1e6)) < 1e-12);
+  // buy: pool loses tokens, gains SOL
+  const b = rpcTx({ userTok: [0, 5_000_000], poolTok: [10_000_000, 5_000_000] });
+  b.meta.preBalances[2] = 4e9; b.meta.postBalances[2] = 5e9;
+  assert.equal(parseTrade("b", b, cfg).side, "buy");
+  // launch: pool gains both
+  const seed = rpcTx({ userTok: [1e9, 0], poolTok: [0, 1e9] });
+  seed.meta.preBalances[2] = 0; seed.meta.postBalances[2] = 2e9;
+  assert.equal(parseTrade("x", seed, cfg), null);
+  assert.equal(parseRpcSell("x", seed, cfg), null, "and it isn't a sell on the Wall either");
+});
+
+test("bucketSeries: last price per bucket, carried forward, ends at the live price", async () => {
+  const { bucketSeries } = await import("../src/live.js");
+  const trades = [{ at: 10, usd: 1 }, { at: 15, usd: 2 }, { at: 75, usd: 3 }];
+  const pts = bucketSeries(trades, { from: 0, to: 100, buckets: 4, nowPrice: 3.5 });
+  assert.deepEqual(pts, [[25, 2], [50, 2], [75, 3], [100, 3], [100, 3.5]]);
+  assert.deepEqual(bucketSeries([], { from: 0, to: 100, buckets: 2, startPrice: 7 }), [[50, 7], [100, 7]]);
+  assert.deepEqual(bucketSeries([], { from: 0, to: 100 }), []);
+});

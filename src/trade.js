@@ -47,6 +47,7 @@ export async function readPool(env, cfg, { fresh = false } = {}) {
     throw e;
   }
   const [p, va, m] = (r?.value || []).map((a) => (a ? fromB64(a.data[0]) : null));
+  const poolLamports = BigInt(r?.value?.[0]?.lamports || 0);
   if (!p || !va || !m) throw new Error("Pool not created yet.");
   const v = new DataView(p.buffer, p.byteOffset);
   const value = {
@@ -56,6 +57,7 @@ export async function readPool(env, cfg, { fresh = false } = {}) {
     tokenReserve: new DataView(va.buffer, va.byteOffset).getBigUint64(64, true),
     decimals: m[44],
   };
+  value.rent = poolLamports - value.solReserve; // the pool account's rent: lamports beyond the curve's SOL
   if (!new PublicKey(p.slice(40, 72)).equals(vault)) throw new Error("Pool vault doesn't match.");
   poolCache = { key: cfg.mint, at: Date.now(), value };
   return value;

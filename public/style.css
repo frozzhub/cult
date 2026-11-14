@@ -79,8 +79,30 @@ section.view.on { display: block; }
 .streak > div { height: 100%; background: var(--mint); border-radius: 3px; transition: width .6s; }
 .streak-l { display: flex; justify-content: space-between; color: var(--dim); font: 400 11px var(--mono); margin-top: 6px; }
 
+/* price chart: one series, so no legend; the title names it */
+.market { border-top: 1px solid var(--line); padding: 28px 0 30px; }
+.mhead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
+.mlabel { color: var(--muted); font-size: 13px; }
+.price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 12px; margin-top: 2px; }
+.price .n { font-size: 26px; font-weight: 500; }
+.price sub { font-size: .62em; vertical-align: -.1em; }
+.chg { font: 500 13px var(--mono); color: var(--muted); white-space: nowrap; }
+.mhead .seg { margin: 0; }
+.chart { position: relative; height: 190px; outline: none; border-radius: 8px; touch-action: pan-y; }
+.chart:focus-visible { box-shadow: 0 0 0 2px var(--line); }
+.chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--dim); font: 400 11px var(--mono); }
+.chart .line { fill: none; stroke: var(--mint); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .cross { stroke: var(--muted); stroke-width: 1; }
+.chart .dot { fill: var(--mint); stroke: var(--bg); stroke-width: 2; }
+.tip { position: absolute; top: 0; transform: translateX(-50%); pointer-events: none; background: var(--hover); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; white-space: nowrap; display: flex; flex-direction: column; gap: 1px; }
+.tip b { font: 500 13px var(--mono); color: var(--text); }
+.tip span { font-size: 11px; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
 /* below the fold */
-.totals { display: flex; justify-content: center; gap: 56px; flex-wrap: wrap; padding: 26px 0 40px; border-top: 1px solid var(--line); }
+.totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; padding: 26px 0 40px; border-top: 1px solid var(--line); }
 .totals .n { font-size: 22px; font-weight: 500; }
 .totals .l { color: var(--muted); font-size: 13px; }
 .how { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; padding-top: 34px; border-top: 1px solid var(--line); }
@@ -151,7 +173,8 @@ dialog#tradeDlg::backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: blu
 .dock { display: none; }
 @media (max-width: 760px) {
   .how { grid-template-columns: 1fr; gap: 30px; }
-  .totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 14px; }
+  .chart { height: 160px; }
   .totals .n { font-size: 18px; }
   .totals .l { font-size: 12px; }
 }
