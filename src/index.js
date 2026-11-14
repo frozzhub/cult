@@ -58,7 +58,7 @@ const publicCfg = (c) => ({ cluster: c.cluster, clientRpc: c.clientRpc, ticker: 
 async function state(env) {
   const cfg = config(env);
   const base = { ...publicCfg(cfg), nextDropAt: nextDropAt(cfg) };
-  if (cfg.demo) return { ...base, ...demoState() };
+  if (cfg.demo) return { ...base, ...demoState(cfg.dropMinutes * 60_000) };
   if (cfg.mint && env.DB) return { ...base, ...(await liveState(env, cfg)) };
   return { ...base, live: false };
 }
@@ -70,7 +70,7 @@ async function walletInfo(env, address) {
   return { address, live: false };
 }
 
-/* ---------------- demo data (deterministic per hour, so refreshes agree) ---------------- */
+/* ---------------- demo data (deterministic per period, so refreshes agree) ---------------- */
 
 function rng(seed) {
   let s = typeof seed === "string" ? [...seed].reduce((a, c) => (Math.imul(a ^ c.charCodeAt(0), 2654435761) >>> 0), 2166136261) : seed >>> 0;
@@ -84,37 +84,38 @@ const DEMO_SUPPLY = 1_000_000_000;
 const DEMO_PRICE = 0.00042; // USD per token
 const DEMO_ELIGIBLE = 612_000_000; // tokens held by eligible wallets, streak-weighted
 
-function demoDrop(h) {
-  const r = rng(h * 7919);
-  const age = (h * HOUR - DEMO_LAUNCH) / HOUR;
+// One sample drop for period k (P = drop length in ms). Sizes scale with P so totals look the same at any cadence.
+function demoDrop(k, P) {
+  const r = rng(k * 7919);
+  const age = (k * P - DEMO_LAUNCH) / HOUR; // hours since launch
   const growth = Math.min(1, 0.25 + age / 400);
-  const usdc = round2((250 + r() * 1300) * growth);
+  const usdc = round2((250 + r() * 1300) * growth * (P / HOUR));
   const holders = Math.round(900 + age * 2.6 + r() * 40);
-  return { n: Math.round(age), at: new Date(h * HOUR).toISOString(), usdc, holders, tx: addr(r).slice(0, 44) + addr(r).slice(0, 44) };
+  return { n: k - Math.floor(DEMO_LAUNCH / P), at: new Date(k * P).toISOString(), usdc, holders, tx: addr(r).slice(0, 44) + addr(r).slice(0, 44) };
 }
 
-function demoState() {
+function demoState(P = HOUR) {
   const now = Date.now();
-  const curH = Math.floor(now / HOUR);
-  const firstH = Math.floor(DEMO_LAUNCH / HOUR);
-  let paid = 0;
-  for (let h = firstH + 1; h <= curH; h++) paid += demoDrop(h).usdc;
+  const cur = Math.floor(now / P);
+  const first = Math.floor(DEMO_LAUNCH / P);
+  let paid = 0, day = 0;
+  const perDay = Math.round(86_400_000 / P);
+  for (let k = first + 1; k <= cur; k++) { const u = demoDrop(k, P).usdc; paid += u; if (k > cur - perDay) day += u; }
   const drops = [];
-  for (let h = curH; h > curH - 48; h--) drops.push(demoDrop(h));
-  const avg24 = drops.slice(0, 24).reduce((a, d) => a + d.usdc, 0) / 24;
+  for (let k = cur; k > cur - 48; k--) drops.push(demoDrop(k, P));
 
-  // Sells since the last drop build the pending pot. One sell roughly every 2-5 minutes.
+  // Recent sells. One roughly every 2-5 minutes.
   const latest = [];
-  const r = rng(curH);
+  const r = rng(Math.floor(now / HOUR));
   let t = now;
   for (let i = 0; i < 30; i++) {
     t -= (60 + r() * 240) * 1000;
     const soldUsd = Math.round(80 + r() ** 2 * 4200);
     latest.push({ wallet: addr(r), soldUsd, paidUsdc: round2(soldUsd * 0.15), at: new Date(t).toISOString() });
   }
-  // The pot for the coming drop fills in step with the hour, so it ends where that drop lands.
-  const pending = round2(demoDrop(curH + 1).usdc * ((now - curH * HOUR) / HOUR));
-
+  // The pot for the coming drop fills in step with the round, so it ends where that drop lands.
+  const pending = round2(demoDrop(cur + 1, P).usdc * ((now - cur * P) / P));
+  const curH = Math.floor(now / HOUR);
   const rt = rng(424242 + Math.floor(curH / 6));
   const top = Array.from({ length: 25 }, () => {
     const paidUsdc = round2(150 + rt() ** 3 * 9000);
@@ -127,8 +128,8 @@ function demoState() {
     price: DEMO_PRICE,
     supply: DEMO_SUPPLY,
     eligibleSupply: DEMO_ELIGIBLE,
-    totals: { paidUsdc: round2(paid), drops: curH - firstH, holders: drops[0].holders },
-    avgDrop24: round2(avg24),
+    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders },
+    avgDrop24: round2(day / perDay),
     pending,
     wall: { top, latest },
     drops,
@@ -144,7 +145,7 @@ function demoWallet(cfg, address) {
   const usd = balance * DEMO_PRICE;
   const eligible = usd >= cfg.minHoldUsd;
   const share = eligible ? (balance * mult) / DEMO_ELIGIBLE : 0;
-  const st = demoState();
+  const st = demoState(cfg.dropMinutes * 60_000);
   const received = round2(st.drops.slice(0, Math.min(48, streakDays * 24 || 6)).reduce((a, d) => a + d.usdc * share, 0) * (1 + streakDays / 6));
   return {
     address, live: true, demo: true,

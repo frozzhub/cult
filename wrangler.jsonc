@@ -16,8 +16,8 @@
       "migrations_dir": "migrations"
     }
   ],
-  // Every 5 minutes: open the hourly airdrop, then snapshot -> swap -> allocate -> pay, one step at a time.
-  "triggers": { "crons": ["*/5 * * * *"] },
+  // Every minute: open the airdrop for each 10-minute round, then snapshot -> swap -> allocate -> pay, one step at a time.
+  "triggers": { "crons": ["* * * * *"] },
   // Signing a few hundred payout transactions takes a while.
   "limits": { "cpu_ms": 120000 },
   "vars": {
@@ -25,7 +25,7 @@
     // Coin mint. Empty until launch: the Buy button and live data switch on when it's set.
     "MINT": "",
     "SELL_TAX_BPS": "1500",
-    "DROP_MINUTES": "60",
+    "DROP_MINUTES": "10",
     // Wallets below this USD value are skipped, which keeps USDC account rent under control.
     "MIN_HOLD_USD": "50",
     // Hold this many days without selling for a bigger share: days:multiplier.
@@ -64,7 +64,7 @@
     "devnet": {
       "name": "paper-hands-devnet",
       "d1_databases": [{ "binding": "DB", "database_name": "paper-hands-devnet", "database_id": "d629b4ad-55e4-46dd-95c3-b38b7616929c", "migrations_dir": "migrations" }],
-      "triggers": { "crons": ["*/5 * * * *"] },
+      "triggers": { "crons": ["* * * * *"] },
       "vars": {
         "CLUSTER": "devnet",
         "X_HANDLE": "",
@@ -84,7 +84,7 @@
         // Browsers aren't blocked by the public devnet RPC, so the page reads the pool and sends trades itself.
         "CLIENT_RPC": "https://api.devnet.solana.com",
         "SELL_TAX_BPS": "1500",
-        "DROP_MINUTES": "60",
+        "DROP_MINUTES": "10",
         "MIN_HOLD_USD": "1",
         "STREAKS": "7:1.25,30:1.5",
         "DEMO": "0",

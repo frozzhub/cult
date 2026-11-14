@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>$PAPER</title>
-  <meta name="description" content="Paper hands pay diamond hands. 0% to buy, 15% to sell, and every hour the sell tax is split between holders in USDC.">
+  <meta name="description" content="Paper hands pay diamond hands. 0% to buy, 15% to sell, and every 10 minutes the sell tax is split between holders in USDC.">
   <meta name="theme-color" content="#0d0e10">
   <!-- Link previews (X, Telegram, Discord). The Worker makes og:image absolute for whichever domain serves it. -->
   <meta property="og:title" content="$PAPER: paper hands pay diamond hands">
-  <meta property="og:description" content="0% to buy, 15% to sell. Every hour the sell tax is split between holders in USDC.">
+  <meta property="og:description" content="0% to buy, 15% to sell. Every 10 minutes the sell tax is split between holders in USDC.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="/og.png">
   <meta property="og:image:width" content="1200">
@@ -42,11 +42,11 @@
       <div class="eyebrow" id="eyebrow">Next airdrop in</div>
       <div class="clock" id="clock">--:--</div>
       <div class="hourbar" aria-hidden="true"><div id="hourFill"></div></div>
-      <div class="pot" id="pot" hidden><span class="n" id="potN">$0.00</span><span class="bump" id="potBump"></span><small>in this hour's pot, paid by sellers</small></div>
-      <p class="line" id="line">Paper hands pay 15%. Diamond hands split it in USDC every hour. A ponzi game. No promised returns.</p>
+      <div class="pot" id="pot" hidden><span class="n" id="potN">$0.00</span><span class="bump" id="potBump"></span><small>in this round's pot, paid by sellers</small></div>
+      <p class="line" id="line">Paper hands pay 15%. Diamond hands split it in USDC every 10 minutes. A ponzi game. No promised returns.</p>
 
       <div class="mine" id="mine" hidden>
-        <div class="cut"><span class="est" id="mEst"></span><span class="lbl">your cut this hour</span></div>
+        <div class="cut"><span class="est" id="mEst"></span><span class="lbl">your cut this round</span></div>
         <div class="facts">
           <div><b id="mBal"></b><span>$PAPER held</span></div>
           <div><b id="mMult"></b><span>streak boost</span></div>
@@ -74,7 +74,7 @@
         <ol class="steps">
           <li><div>Buy $PAPER. No tax on buys.</div></li>
           <li><div>Every sell pays 15%, taken in SOL so it never dumps the chart.</div></li>
-          <li><div>On the hour, the pot is swapped to USDC and split by holdings.</div></li>
+          <li><div id="howDrop">Every 10 minutes, the pot is swapped to USDC and split by holdings.</div></li>
           <li><div id="howHold">Hold $50 or more to get paid. Hold longer for up to 1.5× the cut.</div></li>
         </ol>
         <details class="fine"><summary>Rules</summary><ul id="rules"></ul></details>
@@ -101,7 +101,7 @@
   <section class="view" id="view-drops">
     <div class="narrow">
       <h1>Payouts</h1>
-      <p class="lead">One every hour. Every payment is an on-chain transaction you can check.</p>
+      <p class="lead" id="dropsLead">One every 10 minutes. Every payment is an on-chain transaction you can check.</p>
       <div class="rows" id="dropList"></div>
     </div>
   </section>

@@ -1,6 +1,6 @@
 # $PAPER
 
-0% buy tax, 15% sell tax, all of it airdropped to holders as USDC every hour. Hold 7 days without selling for a 1.25× share, 30 days for 1.5×.
+0% buy tax, 15% sell tax, all of it airdropped to holders as USDC every 10 minutes (`DROP_MINUTES`, cron every minute). Hold 7 days without selling for a 1.25× share, 30 days for 1.5×.
 
 ## What's here
 
@@ -112,3 +112,6 @@ Devnet now runs the real payout path (`DRY_RUN="0"`): it signs and sends batched
 - `PAYOUT_SECRET_KEY` secret: the devnet-only payout key from `program-keys/devnet-payout.json`.
 
 Mainnet leaves `USDC_MINT` empty (real USDC) and `SWAP` on, and stays `DRY_RUN="1"` until you go live.
+## Drop timing (2026-11-14)
+
+Airdrops run every **10 minutes** (`DROP_MINUTES="10"`), and the cron runs every minute so each round opens on time. The site copy says "round" and reads the period from config, so changing `DROP_MINUTES` needs no other edits. Sample data scales with it. A faster round means smaller payouts per round (anything under `MIN_PAYOUT_USDC` rolls over to the next round) and about 6x more payout transactions per hour. On mainnet that's about 15,000 lamports per batch of 8 holders.
