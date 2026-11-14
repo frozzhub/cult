@@ -1,0 +1,104 @@
+{
+  // $PAPER: site + read-only API + Helius webhook + airdrop cron. Not deployed yet (waiting on the green light).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "paper-hands",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "paper-hands",
+      // Local only for now; create the remote one at deploy time and paste its id here.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Every 5 minutes: open the hourly airdrop, then snapshot -> swap -> allocate -> pay, one step at a time.
+  "triggers": { "crons": ["*/5 * * * *"] },
+  // Signing a few hundred payout transactions takes a while.
+  "limits": { "cpu_ms": 120000 },
+  "vars": {
+    "TICKER": "PAPER",
+    // Coin mint. Empty until launch: the Buy button and live data switch on when it's set.
+    "MINT": "",
+    "SELL_TAX_BPS": "1500",
+    "DROP_MINUTES": "60",
+    // Wallets below this USD value are skipped, which keeps USDC account rent under control.
+    "MIN_HOLD_USD": "50",
+    // Hold this many days without selling for a bigger share: days:multiplier.
+    "STREAKS": "7:1.25,30:1.5",
+    "X_HANDLE": "",
+    // "1" serves generated sample data for review. Turn off before launch.
+    "DEMO": "1",
+
+    // ---- on-chain programs (programs/). Set both to switch on the site's Buy/Sell panel. ----
+    "POOL_PROGRAM": "",
+    "HOOK_PROGRAM": "",
+
+    // ---- indexer ----
+    // The pool PDA (owner of its $PAPER vault). Optional: worked out from POOL_PROGRAM + MINT when empty.
+    "POOL_ACCOUNT": "",
+    // Gets the 15% in SOL from the pool, swaps it to USDC and pays holders. Its key is the PAYOUT_SECRET_KEY secret.
+    "PAYOUT_WALLET": "",
+    // Comma-separated wallets that never get airdrops (team, treasury, CEX wallets).
+    "EXCLUDE": "",
+    // "1" runs every step without signing or sending anything. Set "0" to go live.
+    "DRY_RUN": "1",
+    // SOL always kept in the payout wallet for fees (0.05 SOL).
+    "SOL_RESERVE_LAMPORTS": "50000000",
+    // Payouts smaller than this roll into the next airdrop.
+    "MIN_PAYOUT_USDC": "0.01",
+    // Wallets paid per transaction (8 fits under Solana's size limit even when opening their USDC accounts).
+    "BATCH_SIZE": "8",
+    "SLIPPAGE_BPS": "100",
+    "JUP_API": "https://lite-api.jup.ag"
+  },
+  // Secrets: SOLANA_RPC_URL (Helius key or URL), HELIUS_WEBHOOK_SECRET, PAYOUT_SECRET_KEY, JUP_API_KEY (optional)
+
+  // `wrangler deploy --env devnet`: the devnet launch, live trading, airdrops in DRY_RUN (Jupiter/USDC are mainnet only).
+  // Sells come in by polling the pool over RPC, so no Helius webhook is needed.
+  "env": {
+    "devnet": {
+      "name": "paper-hands-devnet",
+      "d1_databases": [{ "binding": "DB", "database_name": "paper-hands-devnet", "database_id": "d629b4ad-55e4-46dd-95c3-b38b7616929c", "migrations_dir": "migrations" }],
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "vars": {
+        "CLUSTER": "devnet",
+        "X_HANDLE": "",
+        "POOL_ACCOUNT": "",
+        "EXCLUDE": "",
+        "TICKER": "PAPER",
+        "MINT": "FpAWetRJ4MJm4mUdTUVeagoHjcQv3oXevu9XUcVFuN6a",
+        "POOL_PROGRAM": "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu",
+        "HOOK_PROGRAM": "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2",
+        "PAYOUT_WALLET": "GCpRo9fhAho6XhCrihAjgMz9WNiTB5Z6mYtFtmnYEBbc",
+        // api.devnet.solana.com blocks Cloudflare IPs. These two free endpoints don't (tried in order, failover on 429/403).
+        "SOLANA_RPC_URL": "https://solana-devnet.g.alchemy.com/v2/demo,https://solana-devnet.api.onfinality.io/public",
+        // Free RPCs can't do holder snapshots, so holders come from our own index of the mint's history.
+        "HOLDERS": "index",
+        "POLL_GAP_MS": "150",
+        "POLL_PAGE": "100",
+        // Browsers aren't blocked by the public devnet RPC, so the page reads the pool and sends trades itself.
+        "CLIENT_RPC": "https://api.devnet.solana.com",
+        "SELL_TAX_BPS": "1500",
+        "DROP_MINUTES": "60",
+        "MIN_HOLD_USD": "1",
+        "STREAKS": "7:1.25,30:1.5",
+        "DEMO": "0",
+        // Real payouts on devnet, in a stand-in USDC (scripts/devnet-test-usdc.mjs). No Jupiter on devnet, so no swap:
+        // the pot is whatever test USDC the payout wallet holds.
+        "DRY_RUN": "0",
+        "SWAP": "off",
+        "USDC_MINT": "56EvddarourfZET4VC6EMYKwyG7uLWbBdxtcetmp1k5e",
+        "SOL_RESERVE_LAMPORTS": "50000000",
+        "MIN_PAYOUT_USDC": "0.01",
+        "BATCH_SIZE": "8",
+        "SLIPPAGE_BPS": "100",
+        "JUP_API": "https://lite-api.jup.ag"
+      }
+    }
+  }
+}

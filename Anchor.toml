@@ -1,0 +1,18 @@
+[toolchain]
+anchor_version = "0.31.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.mainnet]
+paper_pool = "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu"
+paper_hook = "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2"
+
+[programs.localnet]
+paper_pool = "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu"
+paper_hook = "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
