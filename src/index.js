@@ -30,7 +30,14 @@ export default {
       return json({ error: "Something went wrong. Try again." }, 500);
     }
     if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
-    return env.ASSETS.fetch(req);
+    const res = await env.ASSETS.fetch(req);
+    if (!(res.headers.get("content-type") || "").includes("text/html")) return res;
+    // Link previews need absolute URLs, for whichever domain serves the page.
+    const abs = { element: (e) => e.setAttribute("content", url.origin + "/og.png") };
+    return new HTMLRewriter()
+      .on('meta[property="og:image"]', abs).on('meta[name="twitter:image"]', abs)
+      .on("head", { element: (e) => e.append(`<meta property="og:url" content="${url.origin}/">`, { html: true }) })
+      .transform(res);
   },
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(tick(env).then((r) => console.log("tick", JSON.stringify(r))));
