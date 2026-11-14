@@ -327,10 +327,16 @@
   function renderQuote() {
     const q = $("quoteOut"), amt = Number($("amtIn").value.replace(/,/g, ""));
     $("tradeGo").disabled = !(amt > 0 && pool);
-    // Selling resets the streak: say what that costs before they do it.
-    const warn = $("streakWarn");
-    warn.hidden = !(side === "sell" && W?.streakDays > 0);
-    if (!warn.hidden) warn.textContent = `Selling resets your ${W.streakDays}-day streak${W.multiplier > 1 ? ` and your ${W.multiplier}× boost` : ""}. You start again at 1×.`;
+    // Selling costs 15% and resets the streak: say so before they do it, every time.
+    disarm();
+    const warn = $("streakWarn"), tax = (pool?.feeBps ?? S.sellTaxBps) / 100;
+    warn.hidden = side !== "sell";
+    if (!warn.hidden) {
+      const sol = pool ? Number(pool.solReserve) / 1e9 : 0, tok = pool ? Number(pool.tokenReserve) / 10 ** pool.decimals : 0;
+      const fee = amt > 0 && pool ? ((amt * sol) / (tok + amt)) * (tax / 100) : 0;
+      const streak = W?.streakDays > 0 ? ` It also resets your ${W.streakDays}-day streak${W.multiplier > 1 ? ` and ${W.multiplier}× boost` : ""}.` : "";
+      warn.innerHTML = `<b>Selling costs ${tax}%.</b> ${fee > 0 ? `${fee.toFixed(4)} SOL of this sale` : "It"} goes to the people still holding. Hold, and you're the one getting paid.${esc(streak)}`;
+    }
     if (!(amt > 0) || !pool) { q.innerHTML = ""; return; }
     const sol = Number(pool.solReserve) / 1e9, tok = Number(pool.tokenReserve) / 10 ** pool.decimals;
     if (side === "buy") {
@@ -347,8 +353,23 @@
   $("tradeX").addEventListener("click", () => $("tradeDlg").close());
   $("tradeDlg").addEventListener("click", (e) => { if (e.target === $("tradeDlg")) $("tradeDlg").close(); });
 
+  // Selling takes two presses: the first arms it ("Sell anyway, pay 15%"), the second sells.
+  let armed = false;
+  function disarm() {
+    armed = false;
+    $("streakWarn").classList.remove("armed");
+    $("tradeGo").classList.add("mint");
+    if (side === "sell") $("tradeGo").textContent = "Sell";
+  }
   $("tradeGo").addEventListener("click", async () => {
-    if (S.demo) { toast("Sample data. On launch this trades against the $PAPER pool."); return; }
+    if (side === "sell" && !armed) {
+      armed = true;
+      $("streakWarn").classList.add("armed");
+      $("tradeGo").classList.remove("mint"); // the bright button is for holding, not for this
+      $("tradeGo").textContent = `Sell anyway, pay ${(pool?.feeBps ?? S.sellTaxBps) / 100}%`;
+      return;
+    }
+    if (S.demo) { toast("Sample data. On launch this trades against the $PAPER pool."); disarm(); return; }
     if (!wallet) { await connect(); if (!wallet) return; }
     const go = $("tradeGo"), label = go.textContent;
     const amt = Number($("amtIn").value.replace(/,/g, ""));
