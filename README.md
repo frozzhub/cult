@@ -104,3 +104,11 @@ Based on research into classic "ponzi" UIs (Fomo3D's single countdown with the p
 - **Live ticker**: a slow ticker of sells under the header. New Wall rows fade in.
 - **End of the hour**: the clock shows "Paying $X to holders" for 4 seconds.
 - **Look**: palette `#0d0e10` / `#15171a` / `#eceae4`, one accent mint `#8ee4b8`. Inter Tight for text, JetBrains Mono for every number. No APYs, no tile grids, no red for sellers (the copy does the shaming).
+## Real payouts on devnet (2026-11-14)
+
+Devnet now runs the real payout path (`DRY_RUN="0"`): it signs and sends batched token transfers, opens holders' token accounts, confirms, and re-sends only expired batches. Jupiter and USDC are mainnet-only, so devnet uses:
+- `USDC_MINT`: a stand-in USDC (classic SPL token, 6 decimals), [56Evddar…1k5e](https://solscan.io/token/56EvddarourfZET4VC6EMYKwyG7uLWbBdxtcetmp1k5e?cluster=devnet). Top up the payout wallet with `node scripts/devnet-test-usdc.mjs 50`.
+- `SWAP="off"`: no Jupiter swap. The pot is whatever stand-in USDC the payout wallet holds.
+- `PAYOUT_SECRET_KEY` secret: the devnet-only payout key from `program-keys/devnet-payout.json`.
+
+Mainnet leaves `USDC_MINT` empty (real USDC) and `SWAP` on, and stays `DRY_RUN="1"` until you go live.
