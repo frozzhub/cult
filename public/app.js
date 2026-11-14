@@ -87,7 +87,12 @@
 
     $("pot").hidden = !(S.pending > 0);
     setPot(S.pending);
-    $("totals").hidden = !(S.totals.paidUsdc > 0);
+    $("totals").hidden = !(S.totals.paidUsdc > 0 || S.totals.volumeUsd > 0);
+    $("tVol").hidden = !(S.totals.volumeUsd > 0);
+    $("volN").textContent = usdRound(S.totals.volumeUsd || 0);
+    $("tPaid").hidden = !(S.totals.paidUsdc > 0);
+    $("tDrops").hidden = !(S.totals.drops > 0);
+    renderPrice();
     $("paidN").textContent = usdRound(S.totals.paidUsdc);
     $("tHolders").hidden = !(S.totals.holders > 0);
     $("holdersN").textContent = S.totals.holders.toLocaleString("en-US");
@@ -162,6 +167,35 @@
     if (S?.demo) { toast("Sample data. On launch this opens Solscan."); return; }
     const url = (r.dataset.acct ? "https://solscan.io/account/" + r.dataset.acct : "https://solscan.io/tx/" + r.dataset.tx) + (S.cluster === "devnet" ? "?cluster=devnet" : "");
     window.open(url, "_blank", "noopener");
+  });
+
+  /* ---------- price chart ---------- */
+  const chart = window.PaperChart.create($("chart"), $("chartTable"));
+  let range = "24h", chartPts = [], chartAt = 0;
+  function renderPrice() {
+    $("market").hidden = !(S.price > 0);
+    if (!(S.price > 0)) return;
+    $("priceN").innerHTML = window.PaperChart.fmtPrice(S.price).html;
+    if (Date.now() - chartAt > 60_000) loadChart();
+  }
+  async function loadChart() {
+    chartAt = Date.now();
+    try {
+      const r = await api("/api/chart?range=" + range + (DEMO_Q ? "&demo=1" : ""));
+      chartPts = r.points || [];
+    } catch { return; }
+    $("chart").hidden = chartPts.length < 2; // one trade isn't a line yet; the price above still shows
+    chart.set(chartPts);
+    const first = chartPts[0]?.[1], last = chartPts.at(-1)?.[1];
+    const pct = first > 0 && chartPts.length > 1 ? ((last - first) / first) * 100 : null;
+    $("priceChg").textContent = pct == null ? "" : `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(pct >= 10 || pct <= -10 ? 0 : 1)}% ${range === "all" ? "all time" : range}`;
+    $("chart").setAttribute("aria-label", `$PAPER price, ${range === "all" ? "all time" : "last " + range}${pct == null ? "" : `, ${pct >= 0 ? "up" : "down"} ${Math.abs(pct).toFixed(1)}%`}. Use arrow keys to read points.`);
+  }
+  $("rangeSeg").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b || b.dataset.r === range) return;
+    range = b.dataset.r;
+    $("rangeSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    loadChart();
   });
 
   /* ---------- earnings calculator (until your own wallet says it) ---------- */

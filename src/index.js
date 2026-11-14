@@ -8,7 +8,7 @@
 // DEMO="1" serves generated sample data. With DEMO off and no MINT, the site shows a pre-launch state.
 import { config } from "./config.js";
 import { handleWebhook, tick } from "./indexer.js";
-import { liveState, liveWallet } from "./live.js";
+import { liveState, liveWallet, liveChart, RANGES } from "./live.js";
 import { handleTrade, tradeReady, poolAccounts } from "./trade.js";
 
 const HOUR = 3600_000;
@@ -22,6 +22,7 @@ export default {
       // ?demo=1 previews the site with sample data, devnet only (never next to real mainnet numbers).
       const demo = url.searchParams.get("demo") === "1" && env.CLUSTER === "devnet";
       if (url.pathname === "/api/state") return json(await state(demo ? { ...env, DEMO: "1" } : env));
+      if (url.pathname === "/api/chart") return json(await chart(demo ? { ...env, DEMO: "1" } : env, url.searchParams.get("range")));
       if (/^\/api\/(pool|trade|send|tx\/)/.test(url.pathname)) return await handleTrade(req, env, config(env), url.pathname);
       const m = url.pathname.match(/^\/api\/wallet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (m) return json(await walletInfo(demo ? { ...env, DEMO: "1" } : env, m[1]));
@@ -61,6 +62,14 @@ async function state(env) {
   if (cfg.demo) return { ...base, ...demoState(cfg.dropMinutes * 60_000) };
   if (cfg.mint && env.DB) return { ...base, ...(await liveState(env, cfg)) };
   return { ...base, live: false };
+}
+
+async function chart(env, range) {
+  const cfg = config(env);
+  if (!(range in RANGES)) range = "24h";
+  if (cfg.demo) return demoChart(range);
+  if (cfg.mint && env.DB) return liveChart(env, cfg, range);
+  return { range, points: [] };
 }
 
 async function walletInfo(env, address) {
@@ -128,7 +137,8 @@ function demoState(P = HOUR) {
     price: DEMO_PRICE,
     supply: DEMO_SUPPLY,
     eligibleSupply: DEMO_ELIGIBLE,
-    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders },
+    // Volume: sells pay 15%, so sells ~= paid / 0.15; buys run a bit ahead of sells.
+    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / 0.15) * 2.1) },
     avgDrop24: round2(day / perDay),
     pending,
     wall: { top, latest },
@@ -154,4 +164,18 @@ function demoWallet(cfg, address) {
     share, receivedUsdc: received,
     estNext: round2(st.avgDrop24 * share),
   };
+}
+
+// Sample price history: a deterministic random walk (per hour) that ends at the sample price.
+function demoChart(range) {
+  const now = Date.now(), span = { "24h": 86_400_000, "7d": 7 * 86_400_000, all: now - DEMO_LAUNCH }[range];
+  const n = 120, r = rng(7777 + Math.floor(now / HOUR) + span / HOUR);
+  const vol = range === "24h" ? 0.018 : range === "7d" ? 0.035 : 0.05, drift = range === "all" ? 0.014 : range === "7d" ? 0.0016 : 0.0007;
+  const pts = [];
+  let p = DEMO_PRICE;
+  for (let i = n; i >= 0; i--) {
+    pts.push([Math.round(now - (span * (n - i)) / n), p]);
+    p = p / Math.exp(drift + vol * (r() + r() + r() - 1.5)); // walking back in time
+  }
+  return { range, points: pts.reverse() };
 }

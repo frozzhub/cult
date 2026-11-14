@@ -90,6 +90,34 @@ export const poolPrice = (pool, solUsd) => (Number(pool.solReserve) / 1e9 / (Num
 
 /* ---------------- RPC polling (backup for the webhook, and the only feed without Helius) ---------------- */
 
+// The pool account holds its curve SOL plus rent. Rent rates change, so it's measured from the pool itself.
+export const POOL_RENT = 1_234_440; // measured on devnet 2026-11-14; only a fallback
+
+// A standard getTransaction (jsonParsed) -> a trade through the pool, or null.
+//   buy:  pool gains SOL and loses $PAPER      sell: pool gains $PAPER and loses SOL
+// Anything else (seeding the pool, plain transfers) isn't a trade. Price is SOL per $PAPER after the trade.
+export function parseTrade(sig, tx, cfg, rent = POOL_RENT) {
+  if (!tx || tx.meta?.err || !cfg.pool) return null;
+  const keys = (tx.transaction?.message?.accountKeys || []).map((k) => (typeof k === "string" ? k : k.pubkey));
+  const pi = keys.indexOf(cfg.pool);
+  if (pi < 0) return null;
+  const solDelta = tx.meta.postBalances[pi] - tx.meta.preBalances[pi];
+  const sum = (list, owner) => (list || []).filter((b) => b.mint === cfg.mint && b.owner === owner).reduce((a, b) => a + Number(b.uiTokenAmount?.amount || 0), 0);
+  const tokPost = sum(tx.meta.postTokenBalances, cfg.pool);
+  const tokDelta = tokPost - sum(tx.meta.preTokenBalances, cfg.pool);
+  const side = solDelta > 0 && tokDelta < 0 ? "buy" : solDelta < 0 && tokDelta > 0 ? "sell" : null;
+  if (!side || !tokPost) return null;
+  const decimals = (tx.meta.postTokenBalances || []).find((b) => b.mint === cfg.mint)?.uiTokenAmount?.decimals ?? 6;
+  const owners = [...new Set((tx.meta.postTokenBalances || []).filter((b) => b.mint === cfg.mint && b.owner && b.owner !== cfg.pool).map((b) => b.owner))];
+  return {
+    sig, side,
+    wallet: keys[0] && keys[0] !== cfg.pool ? keys[0] : owners[0] || "",
+    sol: Math.abs(solDelta),
+    priceSol: ((tx.meta.postBalances[pi] - rent) / 1e9) / (tokPost / 10 ** decimals),
+    at: Number(tx.blockTime || 0) * 1000 || Date.now(),
+  };
+}
+
 // A standard getTransaction (jsonParsed) -> a sell record, or null. A sell is any successful tx where
 // the pool's $PAPER balance went up and one wallet's went down.
 export function parseRpcSell(sig, tx, cfg) {
@@ -103,11 +131,13 @@ export function parseRpcSell(sig, tx, cfg) {
   const pre = bal(tx.meta.preTokenBalances), post = bal(tx.meta.postTokenBalances);
   const delta = (o) => (post.get(o) || 0) - (pre.get(o) || 0);
   if (!(delta(cfg.pool) > 0)) return null; // pool didn't receive $PAPER: a buy or something else
+  const lam = (acct) => { const i = keys.indexOf(acct); return i < 0 ? 0 : tx.meta.postBalances[i] - tx.meta.preBalances[i]; };
+  // A sell also takes SOL out of the pool. Seeding the pool at launch adds both, so it isn't one.
+  if (keys.includes(cfg.pool) && !(lam(cfg.pool) < 0)) return null;
   const owners = new Set([...pre.keys(), ...post.keys()]);
   let wallet = null, sold = 0;
   for (const o of owners) if (o !== cfg.pool && delta(o) < sold) { sold = delta(o); wallet = o; }
   if (!wallet || wallet === cfg.payout || !ADDR.test(wallet)) return null;
-  const lam = (acct) => { const i = keys.indexOf(acct); return i < 0 ? 0 : tx.meta.postBalances[i] - tx.meta.preBalances[i]; };
   const decimals = (tx.meta.postTokenBalances || []).find((b) => b.mint === cfg.mint)?.uiTokenAmount?.decimals ?? 6;
   return {
     sig, wallet,
@@ -157,6 +187,7 @@ export async function pollMint(env, cfg, now = Date.now()) {
   if (!sigs.length) { await kvSet(env.DB, "poll_state", { behind: 0, ok: true }, now); return { polled: 0 }; }
   const batch = sigs.reverse().slice(0, MAX_TX_PER_TICK); // oldest first
   const { sol } = await cachedPrices(env, cfg, now);
+  const rent = await poolRent(env, cfg);
   let added = 0;
   for (const s of batch) {
     if (s.err) continue;
@@ -169,12 +200,27 @@ export async function pollMint(env, cfg, now = Date.now()) {
         ON CONFLICT(address) DO UPDATE SET owner = excluded.owner, amount = excluded.amount, slot = excluded.slot WHERE excluded.slot >= token_accounts.slot`)
         .bind(JSON.stringify(accts), Number(tx.slot || 0)).run();
     }
+    const trade = parseTrade(s.signature, tx, cfg, rent);
+    if (trade) {
+      await env.DB.prepare("INSERT OR IGNORE INTO trades (sig, at, side, wallet, sol_lamports, price_sol, sol_usd) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(trade.sig, trade.at, trade.side, trade.wallet, trade.sol, trade.priceSol, sol).run();
+    }
     const sell = cfg.pool ? parseRpcSell(s.signature, tx, cfg) : null;
     if (sell && (await recordSell(env, sell, sol))) added++;
   }
   await kvSet(env.DB, "poll_cursor", batch[batch.length - 1].signature, now);
   await kvSet(env.DB, "poll_state", { behind: sigs.length - batch.length, ok: true }, now);
   return { polled: batch.length, added, behind: sigs.length - batch.length };
+}
+
+// The pool account's rent in lamports, read once from the pool (lamports minus its recorded reserve).
+async function poolRent(env, cfg) {
+  const c = await kvGet(env.DB, "pool_rent");
+  if (c?.v) return c.v;
+  if (!cfg.poolProgram) return POOL_RENT;
+  try { const p = await readPool(env, cfg, { fresh: true }); if (p.rent > 0n) { await kvSet(env.DB, "pool_rent", Number(p.rent)); return Number(p.rent); } }
+  catch (e) { console.error("pool rent", e.message); }
+  return POOL_RENT;
 }
 
 // Holders from our own index: Map(owner -> raw balance).

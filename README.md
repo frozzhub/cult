@@ -115,3 +115,10 @@ Mainnet leaves `USDC_MINT` empty (real USDC) and `SWAP` on, and stays `DRY_RUN="
 ## Drop timing (2026-11-14)
 
 Airdrops run every **10 minutes** (`DROP_MINUTES="10"`), and the cron runs every minute so each round opens on time. The site copy says "round" and reads the period from config, so changing `DROP_MINUTES` needs no other edits. Sample data scales with it. A faster round means smaller payouts per round (anything under `MIN_PAYOUT_USDC` rolls over to the next round) and about 6x more payout transactions per hour. On mainnet that's about 15,000 lamports per batch of 8 holders.
+
+## Price chart and totals (2026-11-14)
+
+- **Trades**: the mint poller records every buy and sell through the pool (`trades`, migration 0003) with the price after the trade. That's SOL per $PAPER from the pool's post-trade lamports minus rent (measured from the pool, not hard-coded) and its post-trade vault balance, valued at the SOL price when recorded. Seeding the pool at launch is not a trade or a sell.
+- **API**: `GET /api/chart?range=24h|7d|all` returns up to 120 points (last price per bucket, carried forward through quiet stretches, ending at the live pool price). `/api/state` totals add `volumeUsd` and `trades`.
+- **Page**: the price in compact form ($0.0₃420) and its change over the range, a single-series mint line with a soft fill, crosshair and tooltip (keyboard: arrows, Home/End, Escape), and a screen-reader table. The totals row is total volume, USDC airdropped to holders, holders in the last round, and rounds paid.
+- **Backfill**: deleting the `poll_cursor` and `poll_state` kv rows makes the poller re-read the mint's full history. It's safe, since every insert skips duplicates.
