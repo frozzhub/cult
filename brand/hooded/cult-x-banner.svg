@@ -7,8 +7,8 @@
   <g id="mark">
     <defs>
       <radialGradient id="cultGlow" cx="50%" cy="50%" r="50%">
-        <stop offset="0" stop-color="#8ee4b8" stop-opacity="0.55"/>
-        <stop offset="1" stop-color="#8ee4b8" stop-opacity="0"/>
+        <stop offset="0" stop-color="#2775CA" stop-opacity="0.55"/>
+        <stop offset="1" stop-color="#2775CA" stop-opacity="0"/>
       </radialGradient>
       <clipPath id="cultFrame"><rect width="512" height="512"/></clipPath>
     </defs>
@@ -31,7 +31,7 @@
 
       <!-- the mint dot: what the cult is paid in -->
       <circle cx="256" cy="262" r="58" fill="url(#cultGlow)"/>
-      <circle cx="256" cy="262" r="22" fill="#8ee4b8"/>
+      <circle cx="256" cy="262" r="22" fill="#2775CA"/>
     </g>
   </g>
     </g>
@@ -43,6 +43,6 @@
       <path d="M995,141 V274 H1091"/>
       <path d="M1109,158 H1253 M1181,158 V291"/>
     </g>
-    <text x="620" y="354" textLength="633" lengthAdjust="spacingAndGlyphs" font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="600" font-size="31" fill="#9a978f">Everyone's panicking. <tspan fill="#8ee4b8">The cult is getting paid.</tspan></text>
+    <text x="620" y="354" textLength="633" lengthAdjust="spacingAndGlyphs" font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="600" font-size="31" fill="#9a978f">Everyone's panicking. <tspan fill="#2775CA">The cult is getting paid.</tspan></text>
   </g>
 </svg>

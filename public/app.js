@@ -403,7 +403,7 @@
     } else {
       const gross = (amt * sol) / (tok + amt), fee = (gross * pool.feeBps) / 10_000;
       const imp = (amt / (tok + amt)) * 100;
-      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="mint mono">${fee.toFixed(4)} SOL</span> of it goes to the cult.</div>${impact(imp)}`;
+      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="accent mono">${fee.toFixed(4)} SOL</span> of it goes to the cult.</div>${impact(imp)}`;
     }
   }
   $("sideSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setSide(b.dataset.v); });
@@ -416,14 +416,14 @@
   function disarm() {
     armed = false;
     $("streakWarn").classList.remove("armed");
-    $("tradeGo").classList.add("mint");
+    $("tradeGo").classList.add("accent");
     if (side === "sell") $("tradeGo").textContent = "Sell";
   }
   $("tradeGo").addEventListener("click", async () => {
     if (side === "sell" && !armed) {
       armed = true;
       $("streakWarn").classList.add("armed");
-      $("tradeGo").classList.remove("mint"); // the bright button is for holding, not for this
+      $("tradeGo").classList.remove("accent"); // the bright button is for holding, not for this
       $("tradeGo").textContent = `Leave anyway, pay ${(pool?.feeBps ?? S.sellTaxBps) / 100}%`;
       return;
     }
@@ -469,7 +469,7 @@
     if (!viewing) return;
     const mine = viewing === "me" || viewing === wallet;
     if (mine && !wallet) {
-      el.innerHTML = `<div class="pempty"><h1>Your profile</h1><p class="lead">Connect the wallet you hold $${esc(S?.ticker || "CULT")} in. Link your X and your name and picture show on the boards, and stay in sync with X.</p><button class="btn mint" id="pConnect">Connect wallet</button></div>`;
+      el.innerHTML = `<div class="pempty"><h1>Your profile</h1><p class="lead">Connect the wallet you hold $${esc(S?.ticker || "CULT")} in. Link your X and your name and picture show on the boards, and stay in sync with X.</p><button class="btn accent" id="pConnect">Connect wallet</button></div>`;
       $("pConnect").onclick = connect;
       return;
     }
@@ -484,16 +484,16 @@
     const devotion = p.devotionDays == null ? (p.sells ? "left the cult" : "—") : `${p.devotionDays}d · ${p.multiplier}×`;
     const stats = [
       [compact(p.balance || 0), `$${esc(S?.ticker || "CULT")} held`],
-      [usd(p.receivedUsdc || 0), "USDC received", "mint"],
+      [usd(p.receivedUsdc || 0), "USDC received", "accent"],
       [devotion, "devotion"],
       [p.rank ? "#" + p.rank : "—", "rank among members"],
     ];
     let actions = "";
     if (mine) {
-      if (!ME?.signedIn) actions = `<button class="btn mint" id="pSign">Sign in to edit</button><span class="pnote">One free signature proves the wallet is yours.</span>`;
-      else if (!ME.holds) actions = `<button class="btn mint" data-trade="buy" id="pJoin">Join to create a profile</button><span class="pnote">Profiles are for members holding $${esc(S?.ticker || "CULT")}.</span>`;
+      if (!ME?.signedIn) actions = `<button class="btn accent" id="pSign">Sign in to edit</button><span class="pnote">One free signature proves the wallet is yours.</span>`;
+      else if (!ME.holds) actions = `<button class="btn accent" data-trade="buy" id="pJoin">Join to create a profile</button><span class="pnote">Profiles are for members holding $${esc(S?.ticker || "CULT")}.</span>`;
       else if (!ME.xEnabled) actions = `<span class="pnote">Linking X opens soon.</span>`;
-      else if (!x) actions = `<a class="btn mint" href="/api/x/connect">Link X</a><span class="pnote">Your X name and picture become your profile, and stay in sync with X.</span>`;
+      else if (!x) actions = `<a class="btn accent" href="/api/x/connect">Link X</a><span class="pnote">Your X name and picture become your profile, and stay in sync with X.</span>`;
       else actions = `<button class="btn" id="pUnlink">Unlink X</button>`;
       actions += `<button class="btn ghost" id="pOut">Sign out</button>`;
     }

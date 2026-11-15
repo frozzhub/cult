@@ -1,108 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" width="1500" height="500">
   <defs>
     <clipPath id="roundCrop"><circle cx="256" cy="256" r="256"/></clipPath>
-    <linearGradient id="lineFade" gradientUnits="userSpaceOnUse" x1="690" y1="0" x2="1396" y2="0">
-      <stop offset="0" stop-color="#8ee4b8" stop-opacity="0.15"/>
-      <stop offset="1" stop-color="#8ee4b8"/>
+    <linearGradient id="lineFade" gradientUnits="userSpaceOnUse" x1="700" y1="0" x2="1420" y2="0">
+      <stop offset="0" stop-color="#2775CA" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#2775CA"/>
     </linearGradient>
-    <radialGradient id="tipGlow"><stop offset="0" stop-color="#8ee4b8" stop-opacity="0.6"/><stop offset="1" stop-color="#8ee4b8" stop-opacity="0"/></radialGradient>
+    <linearGradient id="areaFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2775CA" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#2775CA" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="tipGlow"><stop offset="0" stop-color="#2775CA" stop-opacity="0.6"/><stop offset="1" stop-color="#2775CA" stop-opacity="0"/></radialGradient>
   </defs>
   <rect width="1500" height="500" fill="#0d0e10"/>
 
-  <!-- chart grid -->
-  <g stroke="#1a1c20" stroke-width="2">
-    <line x1="690" y1="100" x2="1500" y2="100"/><line x1="690" y1="200" x2="1500" y2="200"/>
-    <line x1="690" y1="300" x2="1500" y2="300"/><line x1="690" y1="400" x2="1500" y2="400"/>
-  </g>
+  <!-- chart -->
+  <polyline points="700,410 780,372 850,388 940,318 1020,336 1110,250 1190,268 1290,160 1350,180 1420,72" fill="none" stroke="url(#lineFade)" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="1420" cy="72" r="36" fill="url(#tipGlow)"/>
+  <circle cx="1420" cy="72" r="11" fill="#2775CA"/>
 
-  <!-- the bars are members: each round the cult stands taller -->
-    <g opacity="0.3">
-      <path d="M760,390 C730,402 715,435 715,475 L715,520 L805,520 L805,475 C805,435 790,402 760,390 Z" fill="#e9e4d8"/>
-      <path d="M760,420 C743,428 736,446 736,460 C736,480 749,490 760,490 C771,490 784,480 784,460 C784,446 777,428 760,420 Z" fill="#0d0e10"/>
-      <circle cx="760" cy="458" r="7" fill="#8ee4b8"/>
-    </g>
-    <g opacity="0.42">
-      <path d="M866,350 C836,362 821,395 821,435 L821,520 L911,520 L911,435 C911,395 896,362 866,350 Z" fill="#e9e4d8"/>
-      <path d="M866,380 C849,388 842,406 842,420 C842,440 855,450 866,450 C877,450 890,440 890,420 C890,406 883,388 866,380 Z" fill="#0d0e10"/>
-      <circle cx="866" cy="418" r="7" fill="#8ee4b8"/>
-    </g>
-    <g opacity="0.53">
-      <path d="M972,320 C942,332 927,365 927,405 L927,520 L1017,520 L1017,405 C1017,365 1002,332 972,320 Z" fill="#e9e4d8"/>
-      <path d="M972,350 C955,358 948,376 948,390 C948,410 961,420 972,420 C983,420 996,410 996,390 C996,376 989,358 972,350 Z" fill="#0d0e10"/>
-      <circle cx="972" cy="388" r="7" fill="#8ee4b8"/>
-    </g>
-    <g opacity="0.65">
-      <path d="M1078,265 C1048,277 1033,310 1033,350 L1033,520 L1123,520 L1123,350 C1123,310 1108,277 1078,265 Z" fill="#e9e4d8"/>
-      <path d="M1078,295 C1061,303 1054,321 1054,335 C1054,355 1067,365 1078,365 C1089,365 1102,355 1102,335 C1102,321 1095,303 1078,295 Z" fill="#0d0e10"/>
-      <circle cx="1078" cy="333" r="7" fill="#8ee4b8"/>
-    </g>
-    <g opacity="0.77">
-      <path d="M1184,210 C1154,222 1139,255 1139,295 L1139,520 L1229,520 L1229,295 C1229,255 1214,222 1184,210 Z" fill="#e9e4d8"/>
-      <path d="M1184,240 C1167,248 1160,266 1160,280 C1160,300 1173,310 1184,310 C1195,310 1208,300 1208,280 C1208,266 1201,248 1184,240 Z" fill="#0d0e10"/>
-      <circle cx="1184" cy="278" r="7" fill="#8ee4b8"/>
-    </g>
-    <g opacity="0.88">
-      <path d="M1290,150 C1260,162 1245,195 1245,235 L1245,520 L1335,520 L1335,235 C1335,195 1320,162 1290,150 Z" fill="#e9e4d8"/>
-      <path d="M1290,180 C1273,188 1266,206 1266,220 C1266,240 1279,250 1290,250 C1301,250 1314,240 1314,220 C1314,206 1307,188 1290,180 Z" fill="#0d0e10"/>
-      <circle cx="1290" cy="218" r="7" fill="#8ee4b8"/>
-    </g>
-    <g opacity="1">
-      <path d="M1396,80 C1366,92 1351,125 1351,165 L1351,520 L1441,520 L1441,165 C1441,125 1426,92 1396,80 Z" fill="#e9e4d8"/>
-      <path d="M1396,110 C1379,118 1372,136 1372,150 C1372,170 1385,180 1396,180 C1407,180 1420,170 1420,150 C1420,136 1413,118 1396,110 Z" fill="#0d0e10"/>
-      <circle cx="1396" cy="148" r="7" fill="#8ee4b8"/>
-    </g>
 
-  <!-- growth line -->
-  <polyline points="690,396 760,360 866,320 972,290 1078,235 1184,180 1290,120 1396,50" fill="none" stroke="url(#lineFade)" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="1396" cy="50" r="34" fill="url(#tipGlow)"/>
-  <circle cx="1396" cy="50" r="11" fill="#8ee4b8"/>
-
-  <!-- small lockup -->
-  <g transform="translate(90,70) scale(0.140625)">
-    <g clip-path="url(#roundCrop)"><rect width="512" height="512" fill="#15171a"/>
-  <g id="mark">
-    <defs>
-      <radialGradient id="cultGlow" cx="50%" cy="50%" r="50%">
-        <stop offset="0" stop-color="#8ee4b8" stop-opacity="0.55"/>
-        <stop offset="1" stop-color="#8ee4b8" stop-opacity="0"/>
-      </radialGradient>
-      <clipPath id="cultFrame"><rect width="512" height="512"/></clipPath>
-    </defs>
-    <g clip-path="url(#cultFrame)">
-      <!-- the inner circle, worn as a halo -->
-      <circle cx="256" cy="222" r="176" fill="none" stroke="#e9e4d8" stroke-width="14"/>
-
-      <!-- hooded member -->
-      <path d="M256,70 C186,96 148,170 148,252 C148,306 112,372 70,530 L442,530 C400,372 364,306 364,252 C364,170 326,96 256,70 Z"
-            fill="#e9e4d8" stroke="#0d0e10" stroke-width="14" stroke-linejoin="round"/>
-      <!-- robe folds -->
-      <g fill="none" stroke="#0d0e10" stroke-width="6" stroke-linecap="round" opacity="0.55">
-        <path d="M256,372 V530"/>
-        <path d="M196,390 C184,430 172,470 164,530"/>
-        <path d="M316,390 C328,430 340,470 348,530"/>
-      </g>
-
-      <!-- the void under the hood -->
-      <path d="M256,140 C212,158 192,212 192,262 C192,318 224,356 256,356 C288,356 320,318 320,262 C320,212 300,158 256,140 Z" fill="#0d0e10"/>
-
-      <!-- the mint dot: what the cult is paid in -->
-      <circle cx="256" cy="262" r="58" fill="url(#cultGlow)"/>
-      <circle cx="256" cy="262" r="22" fill="#8ee4b8"/>
-    </g>
-  </g>
-    </g>
-  </g>
-  <g transform="translate(-6,61.7) scale(0.3)" fill="none" stroke="#e9e4d8" stroke-width="34">
-    <path d="M736,175 A58,58 0 1 0 736,257"/>
-    <path d="M801,141 V214 A60,60 0 0 0 921,214 V141"/>
-    <path d="M995,141 V274 H1091"/>
-    <path d="M1109,158 H1253 M1181,158 V291"/>
-  </g>
-
-  <!-- headline -->
+  <!-- catch phrase -->
   <g font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="800" font-size="88">
-    <text x="88" y="268" fill="#e9e4d8">The cult</text>
-    <text x="88" y="364" fill="#8ee4b8">only grows.</text>
+    <text x="88" y="140" fill="#e9e4d8">the cult</text>
+    <text x="88" y="236" fill="#2775CA">only grows.</text>
   </g>
-  <text x="90" y="424" font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="600" font-size="24" fill="#9a978f">Everyone's panicking. The cult is getting paid.</text>
 </svg>
