@@ -291,6 +291,8 @@
     b.classList.toggle("has-pfp", !!x);
   }
   $("walletBtn").addEventListener("click", () => (wallet ? (location.hash = "profile") : connect()));
+  // Launch isn't built yet: a tap shows the same "Coming soon" as hovering (phones have no hover).
+  $("launchBtn").addEventListener("click", (e) => { const b = e.currentTarget; b.classList.add("tipping"); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove("tipping"), 1600); });
 
   async function loadMine() {
     if (!wallet || !S?.live) return renderMine();
