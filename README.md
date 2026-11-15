@@ -135,3 +135,12 @@ Airdrops run every **10 minutes** (`DROP_MINUTES="10"`), and the cron runs every
 - **Voice:** holders are members, buying is joining, the 15% sell tax is the exit tithe, the holding streak is devotion, sellers have left the cult, and the airdrop is the cult getting paid. The trade panel keeps plain Buy and Sell labels.
 - **Assets:** `brand/board.png` (brand board), `brand/og.png` (the link preview, copied to `public/`), `brand/x-launch.png` (1600x900), `brand/logo.png` (512px, used in `public/token.json`).
 - **Devnet token renamed on-chain:** `node scripts/rename-token.mjs --mint ... --name Cult --symbol CULT --uri .../token.json`.
+
+## Profiles and X (2026-11-15)
+
+- **Sign in** by signing a free Sign In With Solana message (`/api/auth/challenge` then `/api/auth/signin`). That sets a 30-day HttpOnly cookie, and only the token's SHA-256 is stored.
+- **Link X**: only wallets holding $CULT can link (checked against the holder index, then the chain). It uses OAuth 2.0 with PKCE on X's own page. The callback must be finished by the same signed-in wallet, and one X account can belong to one wallet. The profile stores the X id, @handle, name and the 400x400 picture.
+- **Stays in sync**: the scope includes `offline.access`, and the cron re-reads each linked X account about once a day, storing X's rotated refresh token. A revoked link keeps the last name and picture and stops syncing.
+- **Shown**: on the header button, the Members and Left the cult boards, the ticker, and `#profile` / `#u/<wallet>` pages.
+- **Setup**: create an X app at developer.x.com (OAuth 2.0, Web App / confidential client) with the callback `<site>/api/x/callback`, then run `wrangler secret put X_CLIENT_ID` and `X_CLIENT_SECRET`. Until those are set, the profile page says linking opens soon.
+- **Tests**: `test/profile.test.js` covers sign-in, holder gating, PKCE, the callback, the binding guard, one X per wallet, sync and revoke, and unlink and sign-out.

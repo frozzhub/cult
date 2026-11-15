@@ -10,6 +10,7 @@ import { config } from "./config.js";
 import { handleWebhook, tick } from "./indexer.js";
 import { liveState, liveWallet, liveChart, RANGES } from "./live.js";
 import { handleTrade, tradeReady, poolAccounts } from "./trade.js";
+import { handleProfiles, syncX } from "./profiles.js";
 
 const HOUR = 3600_000;
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -19,6 +20,7 @@ export default {
     const url = new URL(req.url);
     try {
       if (url.pathname === "/api/hook" && req.method === "POST") return await handleWebhook(req, env);
+      if (/^\/api\/(auth\/|me$|x\/|profile\/)/.test(url.pathname)) return await handleProfiles(req, env, url);
       // ?demo=1 previews the site with sample data, devnet only (never next to real mainnet numbers).
       const demo = url.searchParams.get("demo") === "1" && env.CLUSTER === "devnet";
       if (url.pathname === "/api/state") return json(await state(demo ? { ...env, DEMO: "1" } : env));
@@ -27,6 +29,7 @@ export default {
       const m = url.pathname.match(/^\/api\/wallet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (m) return json(await walletInfo(demo ? { ...env, DEMO: "1" } : env, m[1]));
     } catch (e) {
+      if (e?.status >= 400 && e.status < 500) return json({ error: e.message }, e.status); // our own, user-facing errors
       console.error(url.pathname, e.message);
       return json({ error: "Something went wrong. Try again." }, 500);
     }
@@ -42,6 +45,8 @@ export default {
   },
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(tick(env).then((r) => console.log("tick", JSON.stringify(r))));
+    // Keep linked profiles matching X (each one about once a day).
+    if (env.DB) ctx.waitUntil(syncX(env).then((r) => r.due && console.log("x sync", JSON.stringify(r))).catch((e) => console.error("x sync", e.message)));
   },
 };
 

@@ -27,10 +27,16 @@
   try { wallet = localStorage.getItem("paper:wallet"); } catch {}
 
   /* ---------- tabs (hash routed) ---------- */
+  // #profile is your own profile; #u/<wallet> is anyone's public one.
+  let viewing = null;
   function show(tab) {
-    if (!["home", "members", "wall", "drops"].includes(tab)) tab = "home";
+    const m = /^u\/([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(tab || "");
+    viewing = m ? m[1] : tab === "profile" ? "me" : null;
+    if (viewing) tab = "profile";
+    else if (!["home", "members", "wall", "drops"].includes(tab)) tab = "home";
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
     document.querySelectorAll("section.view").forEach((v) => v.classList.toggle("on", v.id === "view-" + tab));
+    if (viewing) renderProfile();
     window.scrollTo(0, 0);
   }
   $("tabs").addEventListener("click", (e) => {
@@ -129,13 +135,21 @@
     const list = S.wall.latest.slice(0, 12);
     $("ticker").hidden = !list.length;
     if (!list.length) return;
-    const item = (x) => `<span><span class="w">${esc(short(x.wallet))}</span> left · paid the cult <b>${usd(x.paidUsdc)}</b> · ${ago(x.at)}</span>`;
+    const item = (x) => `<span><span class="w">${xOf(x.wallet) ? esc(xOf(x.wallet).name) : esc(short(x.wallet))}</span> left · paid the cult <b>${usd(x.paidUsdc)}</b> · ${ago(x.at)}</span>`;
     const html = list.map(item).join("");
     $("track").innerHTML = html + html; // doubled for a seamless loop
     $("track").style.animationDuration = Math.max(30, list.length * 7) + "s";
   }
 
-  const avatar = (w) => { const h = hue(w); return `<div class="av" style="background:hsl(${h} 30% 50% / .14);color:hsl(${h} 45% 72%)">${esc(w.slice(0, 2))}</div>`; };
+  // A member with a linked X shows their X picture and name; everyone else gets initials and a short address.
+  const xOf = (w) => S?.profiles?.[w] || null;
+  const avatar = (w, size = "") => {
+    const x = xOf(w);
+    if (x?.pfp) return `<img class="av pfp${size}" src="${esc(x.pfp)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+    const h = hue(w);
+    return `<div class="av${size}" style="background:hsl(${h} 30% 50% / .14);color:hsl(${h} 45% 72%)">${esc(w.slice(0, 2))}</div>`;
+  };
+  const nameOf = (w) => { const x = xOf(w); return x ? `<span class="xn">${esc(x.name)}</span>` : esc(short(w)); };
   let wallMode = "top", seen = new Set();
   function renderWall() {
     const list = wallMode === "top" ? S.wall.top : S.wall.latest;
@@ -147,7 +161,7 @@
       const desc = wallMode === "top" ? `left ${x.sells} time${x.sells === 1 ? "" : "s"} · last ${ago(x.at)}` : `sold ${usd(x.soldUsd)} · ${ago(x.at)}`;
       return `<a class="row${fresh ? " fresh" : ""}" data-acct="${esc(x.wallet)}">
         ${wallMode === "top" ? `<div class="rank">${i + 1}</div>` : ""}${avatar(x.wallet)}
-        <div class="body"><div class="t">${esc(short(x.wallet))}</div><div class="d">${desc}</div></div>
+        <div class="body"><div class="t">${nameOf(x.wallet)}</div><div class="d">${desc}</div></div>
         <div class="end"><div class="a">${usd(x.paidUsdc)}</div></div></a>`;
     }).join("");
   }
@@ -165,7 +179,7 @@
       const you = wallet && x.wallet === wallet;
       return `<a class="row${you ? " you" : ""}" data-acct="${esc(x.wallet)}">
         <div class="rank">${i + 1}</div>${avatar(x.wallet)}
-        <div class="body"><div class="t">${esc(short(x.wallet))}${you ? ' <span class="me">you</span>' : ""}</div><div class="d">${held} · paid in ${x.rounds.toLocaleString("en-US")} rounds</div></div>
+        <div class="body"><div class="t">${nameOf(x.wallet)}${you ? ' <span class="me">you</span>' : ""}</div><div class="d">${held} · paid in ${x.rounds.toLocaleString("en-US")} rounds</div></div>
         <div class="end"><div class="a">${usd(x.receivedUsdc)}</div></div></a>`;
     }).join("");
   }
@@ -178,8 +192,9 @@
 
   document.addEventListener("click", (e) => {
     const r = e.target.closest("a.row"); if (!r || !(r.dataset.acct || r.dataset.tx)) return;
-    if (S?.demo) { toast("Sample data. On launch this opens Solscan."); return; }
-    const url = (r.dataset.acct ? "https://solscan.io/account/" + r.dataset.acct : "https://solscan.io/tx/" + r.dataset.tx) + (S.cluster === "devnet" ? "?cluster=devnet" : "");
+    if (S?.demo) { toast("Sample data. On launch this opens the member's profile."); return; }
+    if (r.dataset.acct) { location.hash = "u/" + r.dataset.acct; return; }
+    const url = "https://solscan.io/tx/" + r.dataset.tx + (S.cluster === "devnet" ? "?cluster=devnet" : "");
     window.open(url, "_blank", "noopener");
   });
 
@@ -230,6 +245,8 @@
 
   /* ---------- wallet ---------- */
   const provider = () => window.phantom?.solana || window.solflare || window.backpack?.solana || window.solana || null;
+  // Connecting signs you in too: one free signature (not a transaction) proves the wallet is yours.
+  let ME = null;
   async function connect() {
     const p = provider();
     if (!p) { toast("Install Phantom, Solflare or Backpack to connect."); return; }
@@ -237,16 +254,43 @@
       const res = await p.connect();
       wallet = (res?.publicKey || p.publicKey).toString();
       try { localStorage.setItem("paper:wallet", wallet); } catch {}
-      await loadMine();
-    } catch { toast("Wallet connection was cancelled."); }
+    } catch { toast("Wallet connection was cancelled."); return; }
+    await signInWallet();
+    await Promise.all([loadMine(), loadMe()]);
   }
-  function disconnect() {
-    wallet = null; W = null;
+  async function signInWallet() {
+    const p = provider();
+    if (!p?.signMessage || !wallet) return false;
+    try {
+      const { nonce, message } = await api("/api/auth/challenge", { wallet });
+      const out = await p.signMessage(new TextEncoder().encode(message), "utf8");
+      const sig = out?.signature || out;
+      await api("/api/auth/signin", { wallet, nonce, signature: toB64(new Uint8Array(sig)) });
+      return true;
+    } catch (e) {
+      toast(/reject|cancel/i.test(e.message) ? "Sign-in cancelled. You can still trade; sign in from your profile." : e.message);
+      return false;
+    }
+  }
+  async function disconnect() {
+    await api("/api/auth/signout", {}).catch(() => {});
+    wallet = null; W = null; ME = null;
     try { localStorage.removeItem("paper:wallet"); } catch {}
     try { provider()?.disconnect?.(); } catch {}
-    renderMine();
+    renderMine(); renderHeader(); renderProfile();
   }
-  $("walletBtn").addEventListener("click", () => (wallet ? (confirm("Disconnect " + short(wallet) + "?") && disconnect()) : connect()));
+  async function loadMe() {
+    try { ME = await api("/api/me"); } catch { ME = null; }
+    if (ME?.signedIn && ME.wallet !== wallet) ME = { signedIn: false, xEnabled: ME.xEnabled }; // a different wallet is connected now
+    renderHeader();
+    if (viewing) renderProfile();
+  }
+  function renderHeader() {
+    const b = $("walletBtn"), x = ME?.signedIn ? ME.x : null;
+    b.innerHTML = x ? `<img class="hpfp" src="${esc(x.pfp || "")}" alt="" referrerpolicy="no-referrer">${esc(x.name)}` : wallet ? esc(short(wallet)) : "Connect";
+    b.classList.toggle("has-pfp", !!x);
+  }
+  $("walletBtn").addEventListener("click", () => (wallet ? (location.hash = "profile") : connect()));
 
   async function loadMine() {
     if (!wallet || !S?.live) return renderMine();
@@ -255,7 +299,7 @@
     if (S) $("calc").hidden = !(S.avgDrop24 > 0 && S.eligibleSupply > 0) || !!W?.eligible;
   }
   function renderMine() {
-    $("walletBtn").textContent = wallet ? short(wallet) : "Connect";
+    if (!ME?.x) $("walletBtn").textContent = wallet ? short(wallet) : "Connect";
     const show = !!(wallet && W && W.balance > 0);
     $("mine").hidden = !show;
     $("line").hidden = show;
@@ -418,12 +462,65 @@
     } finally { go.disabled = false; go.textContent = label; }
   });
 
+  /* ---------- profiles ---------- */
+  let pubCache = {};
+  async function renderProfile() {
+    const el = $("pcard");
+    if (!viewing) return;
+    const mine = viewing === "me" || viewing === wallet;
+    if (mine && !wallet) {
+      el.innerHTML = `<div class="pempty"><h1>Your profile</h1><p class="lead">Connect the wallet you hold $${esc(S?.ticker || "CULT")} in. Link your X and your name and picture show on the boards, and stay in sync with X.</p><button class="btn mint" id="pConnect">Connect wallet</button></div>`;
+      $("pConnect").onclick = connect;
+      return;
+    }
+    const target = mine ? wallet : viewing;
+    let p = mine && ME?.signedIn ? ME : pubCache[target];
+    if (!p) {
+      el.innerHTML = `<div class="muted">Loading…</div>`;
+      try { p = pubCache[target] = await api("/api/profile/" + target); } catch { el.innerHTML = `<div class="muted">Couldn't load this profile.</div>`; return; }
+      if (viewing !== (mine ? "me" : target) && !(mine && viewing === wallet)) return; // moved on while loading
+    }
+    const x = p.x, sol = "https://solscan.io/account/" + target + (S?.cluster === "devnet" ? "?cluster=devnet" : "");
+    const devotion = p.devotionDays == null ? (p.sells ? "left the cult" : "—") : `${p.devotionDays}d · ${p.multiplier}×`;
+    const stats = [
+      [compact(p.balance || 0), `$${esc(S?.ticker || "CULT")} held`],
+      [usd(p.receivedUsdc || 0), "USDC received", "mint"],
+      [devotion, "devotion"],
+      [p.rank ? "#" + p.rank : "—", "rank among members"],
+    ];
+    let actions = "";
+    if (mine) {
+      if (!ME?.signedIn) actions = `<button class="btn mint" id="pSign">Sign in to edit</button><span class="pnote">One free signature proves the wallet is yours.</span>`;
+      else if (!ME.holds) actions = `<button class="btn mint" data-trade="buy" id="pJoin">Join to create a profile</button><span class="pnote">Profiles are for members holding $${esc(S?.ticker || "CULT")}.</span>`;
+      else if (!ME.xEnabled) actions = `<span class="pnote">Linking X opens soon.</span>`;
+      else if (!x) actions = `<a class="btn mint" href="/api/x/connect">Link X</a><span class="pnote">Your X name and picture become your profile, and stay in sync with X.</span>`;
+      else actions = `<button class="btn" id="pUnlink">Unlink X</button>`;
+      actions += `<button class="btn ghost" id="pOut">Sign out</button>`;
+    }
+    el.innerHTML = `
+      <div class="phead">${x?.pfp ? `<img class="ppfp" src="${esc(x.pfp)}" alt="" referrerpolicy="no-referrer">` : avatar(target, " big")}
+        <div class="pid"><h1>${x ? esc(x.name) : esc(short(target))}</h1>
+          <div class="psub">${x ? `<a href="https://x.com/${esc(x.handle)}" target="_blank" rel="noopener">@${esc(x.handle)}</a> · <a class="mono" href="${sol}" target="_blank" rel="noopener">${esc(short(target))}</a>` : `<a href="${sol}" target="_blank" rel="noopener">View on Solscan</a>`}${mine ? ' <span class="me">you</span>' : ""}</div></div></div>
+      <div class="pstats">${stats.map(([n, l, c]) => `<div><div class="n ${c || ""}">${n}</div><div class="l">${l}</div></div>`).join("")}</div>
+      ${actions ? `<div class="pactions">${actions}</div>` : ""}`;
+    if ($("pSign")) $("pSign").onclick = async () => { if (await signInWallet()) loadMe(); };
+    if ($("pJoin")) $("pJoin").onclick = () => openTrade("buy");
+    if ($("pUnlink")) $("pUnlink").onclick = async () => { await api("/api/x/disconnect", {}).catch((e) => toast(e.message)); delete pubCache[wallet]; await loadMe(); toast("X unlinked."); };
+    if ($("pOut")) $("pOut").onclick = async () => { await disconnect(); location.hash = ""; };
+  }
+
+  // Back from X: say how it went, then tidy the URL.
+  const X_RESULT = { connected: "X linked. Your name and picture now show across CULT.", cancelled: "X linking cancelled.", expired: "That X link expired. Try again.", signin: "Sign in with the same wallet, then link X again.", taken: "That X account is already linked to another wallet.", failed: "X didn't respond. Try again." };
+  const xr = new URLSearchParams(location.search).get("x");
+  if (xr) { toast(X_RESULT[xr] || X_RESULT.failed); history.replaceState(null, "", location.pathname + (DEMO_Q ? "?demo" : "") + location.hash); }
+
   /* ---------- boot ---------- */
   async function load() {
     try { S = await api("/api/state" + DEMO_Q); } catch { toast("Couldn't load the latest numbers."); return; }
     render();
     loadMine();
   }
+  loadMe();
   show(location.hash.slice(1));
   load();
   setInterval(tick, 1000);

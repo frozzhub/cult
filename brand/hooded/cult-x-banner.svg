@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" width="1500" height="500">
+  <rect width="1500" height="500" fill="#0d0e10"/>
+  <defs><clipPath id="roundCrop"><circle cx="256" cy="256" r="256"/></clipPath></defs>
+  <g transform="translate(120,45) scale(0.8)">
+    <g clip-path="url(#roundCrop)">
+      <rect width="512" height="512" fill="#15171a"/>
+  <g id="mark">
+    <defs>
+      <radialGradient id="cultGlow" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#8ee4b8" stop-opacity="0.55"/>
+        <stop offset="1" stop-color="#8ee4b8" stop-opacity="0"/>
+      </radialGradient>
+      <clipPath id="cultFrame"><rect width="512" height="512"/></clipPath>
+    </defs>
+    <g clip-path="url(#cultFrame)">
+      <!-- the inner circle, worn as a halo -->
+      <circle cx="256" cy="222" r="176" fill="none" stroke="#e9e4d8" stroke-width="14"/>
+
+      <!-- hooded member -->
+      <path d="M256,70 C186,96 148,170 148,252 C148,306 112,372 70,530 L442,530 C400,372 364,306 364,252 C364,170 326,96 256,70 Z"
+            fill="#e9e4d8" stroke="#0d0e10" stroke-width="14" stroke-linejoin="round"/>
+      <!-- robe folds -->
+      <g fill="none" stroke="#0d0e10" stroke-width="6" stroke-linecap="round" opacity="0.55">
+        <path d="M256,372 V530"/>
+        <path d="M196,390 C184,430 172,470 164,530"/>
+        <path d="M316,390 C328,430 340,470 348,530"/>
+      </g>
+
+      <!-- the void under the hood -->
+      <path d="M256,140 C212,158 192,212 192,262 C192,318 224,356 256,356 C288,356 320,318 320,262 C320,212 300,158 256,140 Z" fill="#0d0e10"/>
+
+      <!-- the mint dot: what the cult is paid in -->
+      <circle cx="256" cy="262" r="58" fill="url(#cultGlow)"/>
+      <circle cx="256" cy="262" r="22" fill="#8ee4b8"/>
+    </g>
+  </g>
+    </g>
+  </g>
+  <g fill="none" stroke="#e9e4d8" stroke-width="34">
+    <path d="M748,132 A75,75 0 1 0 748,238"/>
+    <path d="M830,110 V200 A60,60 0 0 0 950,200 V110"/>
+    <path d="M1020,110 V243 H1120"/>
+    <path d="M1160,127 H1300 M1230,127 V260"/>
+  </g>
+  <text x="622" y="352" font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="600" font-size="34" fill="#9a978f">Everyone's panicking. <tspan fill="#8ee4b8">The cult is getting paid.</tspan></text>
+</svg>
