@@ -142,6 +142,7 @@ function demoState(P = HOUR) {
     avgDrop24: round2(day / perDay),
     pending,
     wall: { top, latest },
+    members: demoMembers(paid, cur - first),
     drops,
   };
 }
@@ -178,4 +179,13 @@ function demoChart(range) {
     p = p / Math.exp(drift + vol * (r() + r() + r() - 1.5)); // walking back in time
   }
   return { range, points: pts.reverse() };
+}
+// Sample members leaderboard: the biggest bags that held longest got paid most.
+function demoMembers(paid, rounds) {
+  const r = rng(90210);
+  return Array.from({ length: 25 }, () => {
+    const devotionDays = Math.floor(3 + r() * 19);
+    const share = r() ** 2.6 * 0.03; // a few whales, a long tail
+    return { wallet: addr(r), receivedUsdc: round2(paid * share), rounds: Math.max(1, Math.min(rounds, Math.round(devotionDays * 144 * (0.7 + r() * 0.3)))), balance: Math.round(200_000 + share * 400_000_000), devotionDays, multiplier: devotionDays >= 30 ? 1.5 : devotionDays >= 7 ? 1.25 : 1 };
+  }).sort((a, b) => b.receivedUsdc - a.receivedUsdc);
 }

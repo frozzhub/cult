@@ -8,7 +8,7 @@ export async function liveState(env, cfg) {
   const db = env.DB;
   const now = Date.now();
   const { sol, token } = await cachedPrices(env, cfg, now);
-  const [totals, drops, top, latest, pend, last, avg, mintRow, vol] = await db.batch([
+  const [totals, drops, top, latest, pend, last, avg, mintRow, vol, memb] = await db.batch([
     db.prepare("SELECT COALESCE(SUM(usdc_micro), 0) AS paid, COUNT(*) AS drops FROM drops WHERE status = 'done'"),
     db.prepare(`SELECT n, at, usdc_micro, holders, (SELECT sig FROM batches b WHERE b.drop_n = d.n AND b.status = 'confirmed' ORDER BY i LIMIT 1) AS tx FROM drops d WHERE status = 'done' AND usdc_micro > 0 ORDER BY n DESC LIMIT 48`),
     db.prepare("SELECT wallet, sells, paid_usdc, last_at FROM sellers ORDER BY paid_usdc DESC LIMIT 25"),
@@ -19,6 +19,11 @@ export async function liveState(env, cfg) {
     db.prepare("SELECT COALESCE(AVG(usdc_micro), 0) AS a FROM drops WHERE status = 'done' AND at > ?").bind(now - DAY),
     db.prepare("SELECT v FROM kv WHERE k = 'mint'"),
     db.prepare("SELECT COALESCE(SUM(sol_lamports / 1e9 * sol_usd), 0) AS v, COUNT(*) AS n FROM trades"),
+    // Members leaderboard: most USDC actually received (confirmed batches only).
+    db.prepare(`SELECT p.wallet, SUM(p.micro) AS micro, COUNT(*) AS rounds, h.balance, h.since, s.last_at
+      FROM payouts p JOIN batches b ON b.drop_n = p.drop_n AND b.i = p.batch AND b.status = 'confirmed'
+      LEFT JOIN holders h ON h.wallet = p.wallet LEFT JOIN sellers s ON s.wallet = p.wallet
+      WHERE p.micro > 0 GROUP BY p.wallet ORDER BY micro DESC LIMIT 25`),
   ]);
   // Drops are numbered 1, 2, 3... in the order they were paid.
   const doneCount = totals.results[0].drops;
@@ -35,6 +40,11 @@ export async function liveState(env, cfg) {
       top: top.results.map((r) => ({ wallet: r.wallet, paidUsdc: r.paid_usdc, sells: r.sells, at: new Date(r.last_at).toISOString() })),
       latest: latest.results.map((r) => ({ wallet: r.wallet, soldUsd: usd(r.sol_out + r.fee_lamports, r.sol_usd), paidUsdc: usd(r.fee_lamports, r.sol_usd), at: new Date(r.at).toISOString() })),
     },
+    members: memb.results.map((r) => {
+      const dec = mintRow.results[0] ? JSON.parse(mintRow.results[0].v).decimals : 6;
+      const days = r.since == null ? null : Math.floor((now - Math.max(r.since, r.last_at ?? 0)) / DAY);
+      return { wallet: r.wallet, receivedUsdc: r.micro / 1e6, rounds: r.rounds, balance: r.balance ? Number(r.balance) / 10 ** dec : 0, devotionDays: days, multiplier: days == null ? 1 : streakMult(cfg, days) };
+    }),
     drops: shown.map((r, i) => ({ n: doneCount - i, at: new Date(r.at).toISOString(), usdc: r.usdc_micro / 1e6, holders: r.holders, tx: r.tx })),
     decimals: mintRow.results[0] ? JSON.parse(mintRow.results[0].v).decimals : null,
   };

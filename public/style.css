@@ -143,6 +143,8 @@ details.fine ul { padding-left: 18px; }
 .row .end .w { color: var(--muted); font-size: 12px; }
 .row.fresh { animation: fresh 1.6s ease-out; }
 @keyframes fresh { from { background: var(--mint-soft); } to { background: transparent; } }
+.row.you { background: var(--mint-soft); }
+.me { font: 500 11px var(--sans); color: var(--mint); margin-left: 6px; }
 .rank { width: 20px; color: var(--dim); font: 400 12px var(--mono); text-align: right; flex: none; }
 .av { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font: 500 11px var(--mono); flex: none; }
 .seg { display: inline-flex; background: var(--surface); border-radius: 9px; padding: 3px; gap: 2px; margin-bottom: 14px; }
