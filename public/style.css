@@ -67,6 +67,8 @@ section.view.on { display: block; }
 .pot { font: 500 clamp(28px, 5vw, 40px)/1.1 var(--mono); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
 .pot small { display: block; font: 400 14px var(--sans); color: var(--muted); margin-top: 6px; }
 .line { color: var(--muted); max-width: 460px; margin: 26px auto 0; }
+/* USDC coin in place of the word: cap-height, sitting on the text baseline like a letter */
+.usdc { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.17em; margin-left: .08em; }
 .cta { display: flex; gap: 10px; justify-content: center; margin-top: 28px; }
 .cta .btn { min-width: 120px; }
 

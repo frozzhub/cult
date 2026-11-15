@@ -70,7 +70,9 @@
     $("dropsLead").textContent = `One every ${every}. Every payment is an on-chain transaction you can check.`;
     $("net").hidden = S.cluster !== "devnet" && !S.demo;
     $("net").textContent = S.demo ? "sample data" : "devnet";
-    $("line").textContent = `Everyone's panicking. The cult is getting paid. Leaving costs ${tax}%, and it goes to those who stay. A ponzi game. No promised returns.` + (live ? "" : " Opening soon.");
+    // The USDC icon in the HTML stands in for the word (screen readers still read "USDC"); keep it, swap the text around it.
+    const usdcIcon = $("line").querySelector(".usdc")?.outerHTML || "USDC";
+    $("line").innerHTML = `Sellers pay a ${tax}% fee, which is accumulated and airdropped every ${S.dropMinutes === 60 ? "hour" : S.dropMinutes + "&nbsp;minutes"} to holders in&nbsp;${usdcIcon}` + (live ? "" : " Opening soon.");
     $("howHold").textContent = `Hold $${S.minHoldUsd} or more to be counted. Stay longer and your devotion earns up to ${Math.max(...S.streaks.map((s) => s.mult))}× the cut.`;
     $("rules").innerHTML = [
       `Joining (buying) has no tax. Leaving (selling) pays ${tax}% of the SOL you receive: the exit tithe, straight to the payout wallet.`,
