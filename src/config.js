@@ -9,7 +9,7 @@ export function config(env) {
   const cfg = {
     cluster: env.CLUSTER === "devnet" ? "devnet" : "mainnet",
     clientRpc: env.CLIENT_RPC || "",       // set: the browser reads the pool and sends trades through this RPC itself
-    ticker: env.TICKER || "PAPER",
+    ticker: env.TICKER || "CULT",
     mint: env.MINT || "",
     sellTaxBps: Number(env.SELL_TAX_BPS || 1500),
     dropMinutes: Number(env.DROP_MINUTES || 60),

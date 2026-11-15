@@ -1,5 +1,5 @@
 {
-  // $PAPER: site + read-only API + Helius webhook + airdrop cron. Not deployed yet (waiting on the green light).
+  // CULT ($CULT): site + read-only API + Helius webhook + airdrop cron. Not deployed yet (waiting on the green light).
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "paper-hands",
   "main": "src/index.js",
@@ -21,7 +21,7 @@
   // Signing a few hundred payout transactions takes a while.
   "limits": { "cpu_ms": 120000 },
   "vars": {
-    "TICKER": "PAPER",
+    "TICKER": "CULT",
     // Coin mint. Empty until launch: the Buy button and live data switch on when it's set.
     "MINT": "",
     "SELL_TAX_BPS": "1500",
@@ -70,7 +70,7 @@
         "X_HANDLE": "",
         "POOL_ACCOUNT": "",
         "EXCLUDE": "",
-        "TICKER": "PAPER",
+        "TICKER": "CULT",
         "MINT": "FpAWetRJ4MJm4mUdTUVeagoHjcQv3oXevu9XUcVFuN6a",
         "POOL_PROGRAM": "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu",
         "HOOK_PROGRAM": "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2",

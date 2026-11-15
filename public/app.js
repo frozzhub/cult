@@ -1,4 +1,4 @@
-// $PAPER site. Connecting a wallet only reads its address; trades are built by the Worker and signed by you.
+// CULT site. Connecting a wallet only reads its address; trades are built by the Worker and signed by you.
 (() => {
   const $ = (id) => document.getElementById(id);
   const short = (w) => (w ? w.slice(0, 4) + "…" + w.slice(-4) : "");
@@ -64,16 +64,16 @@
     $("dropsLead").textContent = `One every ${every}. Every payment is an on-chain transaction you can check.`;
     $("net").hidden = S.cluster !== "devnet" && !S.demo;
     $("net").textContent = S.demo ? "sample data" : "devnet";
-    $("line").textContent = `Paper hands pay ${tax}%. Diamond hands split it in USDC every ${S.dropMinutes === 60 ? "hour" : S.dropMinutes + " minutes"}. A ponzi game. No promised returns.` + (live ? "" : " Launching soon.");
-    $("howHold").textContent = `Hold $${S.minHoldUsd} or more to get paid. Hold longer for up to ${Math.max(...S.streaks.map((s) => s.mult))}× the cut.`;
+    $("line").textContent = `Everyone's panicking. The cult is getting paid. Leaving costs ${tax}%, and it goes to those who stay. A ponzi game. No promised returns.` + (live ? "" : " Opening soon.");
+    $("howHold").textContent = `Hold $${S.minHoldUsd} or more to be counted. Stay longer and your devotion earns up to ${Math.max(...S.streaks.map((s) => s.mult))}× the cut.`;
     $("rules").innerHTML = [
-      `Buys have no tax. Sells pay ${tax}% of the SOL you receive, straight to the payout wallet.`,
-      `Every ${S.dropMinutes} minutes, holders with at least $${S.minHoldUsd} of $${S.ticker} are snapshotted and paid in USDC.`,
-      `Your cut is your balance times your streak boost, out of everyone eligible.`,
-      `Streak boosts for not selling: ${S.streaks.map((s) => `${s.days} days ${s.mult}×`).join(", ")}. Any sell resets it.`,
-      `The pool, team wallets and the payout wallet never get airdrops. Liquidity is locked and the tax can never change.`,
-      `Airdrops come only from sells. If nobody sells, nobody gets paid. This is a game, not an investment.`,
-      ...(S.cluster === "devnet" ? ["This is the devnet test launch: trades use devnet SOL and airdrops run as a dry run."] : []),
+      `Joining (buying) has no tax. Leaving (selling) pays ${tax}% of the SOL you receive: the exit tithe, straight to the payout wallet.`,
+      `Every ${S.dropMinutes} minutes, members holding at least $${S.minHoldUsd} of $${S.ticker} are counted and paid in USDC.`,
+      `Your cut is your balance times your devotion boost, out of every member counted.`,
+      `Devotion (days without selling): ${S.streaks.map((s) => `${s.days} days ${s.mult}×`).join(", ")}. Any sell resets it to 1×.`,
+      `The pool, team wallets and the payout wallet are never paid. Liquidity is locked and the tithe can never change.`,
+      `Payouts come only from people leaving. If nobody sells, nobody gets paid. This is a game, not an investment.`,
+      ...(S.cluster === "devnet" ? ["This is the devnet test launch: trades use devnet SOL and payouts use a test stand-in for USDC."] : []),
     ].map((t) => `<li>${esc(t)}</li>`).join("");
 
     const canTrade = S.trade || S.demo;
@@ -116,10 +116,10 @@
     if (ms === 0) {
       celebrating = true;
       const pot = potShown || 0;
-      $("eyebrow").textContent = "Airdrop";
+      $("eyebrow").textContent = "Payout";
       $("clock").classList.add("paid");
-      $("clock").textContent = pot > 0 ? `Paying ${usd(pot)} to holders` : "Nothing sold this round";
-      setTimeout(() => { celebrating = false; $("clock").classList.remove("paid"); $("eyebrow").textContent = "Next airdrop in"; load(); }, 4000);
+      $("clock").textContent = pot > 0 ? `Paying ${usd(pot)} to the cult` : "Nobody left this round";
+      setTimeout(() => { celebrating = false; $("clock").classList.remove("paid"); $("eyebrow").textContent = "The cult gets paid in"; load(); }, 4000);
     }
   }
 
@@ -127,7 +127,7 @@
     const list = S.wall.latest.slice(0, 12);
     $("ticker").hidden = !list.length;
     if (!list.length) return;
-    const item = (x) => `<span><span class="w">${esc(short(x.wallet))}</span> sold · paid holders <b>${usd(x.paidUsdc)}</b> · ${ago(x.at)}</span>`;
+    const item = (x) => `<span><span class="w">${esc(short(x.wallet))}</span> left · paid the cult <b>${usd(x.paidUsdc)}</b> · ${ago(x.at)}</span>`;
     const html = list.map(item).join("");
     $("track").innerHTML = html + html; // doubled for a seamless loop
     $("track").style.animationDuration = Math.max(30, list.length * 7) + "s";
@@ -142,7 +142,7 @@
       const id = wallMode + x.wallet + x.at;
       const fresh = !first && !seen.has(id);
       seen.add(id);
-      const desc = wallMode === "top" ? `${x.sells} sell${x.sells === 1 ? "" : "s"} · last ${ago(x.at)}` : `sold ${usd(x.soldUsd)} · ${ago(x.at)}`;
+      const desc = wallMode === "top" ? `left ${x.sells} time${x.sells === 1 ? "" : "s"} · last ${ago(x.at)}` : `sold ${usd(x.soldUsd)} · ${ago(x.at)}`;
       return `<a class="row${fresh ? " fresh" : ""}" data-acct="${esc(x.wallet)}">
         ${wallMode === "top" ? `<div class="rank">${i + 1}</div>` : ""}${avatar(x.wallet)}
         <div class="body"><div class="t">${esc(short(x.wallet))}</div><div class="d">${desc}</div></div>
@@ -158,7 +158,7 @@
 
   function renderDrops() {
     $("dropList").innerHTML = S.drops.map((d) => `<a class="row"${d.tx ? ` data-tx="${esc(d.tx)}"` : ""}>
-      <div class="body"><div class="t">#${d.n.toLocaleString("en-US")}</div><div class="d">${d.holders.toLocaleString("en-US")} holders paid</div></div>
+      <div class="body"><div class="t">#${d.n.toLocaleString("en-US")}</div><div class="d">${d.holders.toLocaleString("en-US")} members paid</div></div>
       <div class="end"><div class="a">${usd(d.usdc)}</div><div class="w">${ago(d.at)}</div></div></a>`).join("");
   }
 
@@ -189,7 +189,7 @@
     const first = chartPts[0]?.[1], last = chartPts.at(-1)?.[1];
     const pct = first > 0 && chartPts.length > 1 ? ((last - first) / first) * 100 : null;
     $("priceChg").textContent = pct == null ? "" : `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(pct >= 10 || pct <= -10 ? 0 : 1)}% ${range === "all" ? "all time" : range}`;
-    $("chart").setAttribute("aria-label", `$PAPER price, ${range === "all" ? "all time" : "last " + range}${pct == null ? "" : `, ${pct >= 0 ? "up" : "down"} ${Math.abs(pct).toFixed(1)}%`}. Use arrow keys to read points.`);
+    $("chart").setAttribute("aria-label", `$${S.ticker} price, ${range === "all" ? "all time" : "last " + range}${pct == null ? "" : `, ${pct >= 0 ? "up" : "down"} ${Math.abs(pct).toFixed(1)}%`}. Use arrow keys to read points.`);
   }
   $("rangeSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || b.dataset.r === range) return;
@@ -203,10 +203,10 @@
     const amt = Number($("calcIn").value.replace(/[^\d.]/g, ""));
     const out = $("calcOut");
     if (!amt || !S.eligibleSupply) { out.innerHTML = ""; return; }
-    if (amt * S.price < S.minHoldUsd) { out.innerHTML = `<div class="muted">That's about ${tiny(amt * S.price)}. Hold $${S.minHoldUsd} or more to get paid.</div>`; return; }
+    if (amt * S.price < S.minHoldUsd) { out.innerHTML = `<div class="muted">That's about ${tiny(amt * S.price)}. Hold $${S.minHoldUsd} or more to be counted.</div>`; return; }
     const per = S.avgDrop24 * (amt / (S.eligibleSupply + amt));
     out.innerHTML = `<div class="n">~${tiny(per * (60 / S.dropMinutes) * 24)} a day</div>
-      <div class="muted" style="font-size:13px">At the last 24 hours of sells, before streak boosts. If nobody sells, nobody gets paid.</div>`;
+      <div class="muted" style="font-size:13px">At the last 24 hours of people leaving, before devotion boosts. If nobody leaves, nobody gets paid.</div>`;
   }
   $("calcIn").addEventListener("input", (e) => {
     const d = e.target.value.replace(/[^\d]/g, "");
@@ -252,8 +252,8 @@
     $("mGot").textContent = usd(W.receivedUsdc);
     const nx = W.nextStreak;
     $("streakBar").style.width = (nx ? Math.min(100, (W.streakDays / nx.days) * 100) : 100) + "%";
-    $("streakT").textContent = `${W.streakDays}d without selling`;
-    $("streakN").textContent = !W.eligible ? `hold $${S.minHoldUsd}+ to qualify` : nx ? `${nx.days - W.streakDays}d to ${nx.mult}×` : "top boost";
+    $("streakT").textContent = `${W.streakDays}d of devotion`;
+    $("streakN").textContent = !W.eligible ? `hold $${S.minHoldUsd}+ to be counted` : nx ? `${nx.days - W.streakDays}d to ${nx.mult}×` : "full devotion";
   }
 
   /* ---------- trading ---------- */
@@ -334,18 +334,18 @@
     if (!warn.hidden) {
       const sol = pool ? Number(pool.solReserve) / 1e9 : 0, tok = pool ? Number(pool.tokenReserve) / 10 ** pool.decimals : 0;
       const fee = amt > 0 && pool ? ((amt * sol) / (tok + amt)) * (tax / 100) : 0;
-      const streak = W?.streakDays > 0 ? ` It also resets your ${W.streakDays}-day streak${W.multiplier > 1 ? ` and ${W.multiplier}× boost` : ""}.` : "";
-      warn.innerHTML = `<b>Selling costs ${tax}%.</b> ${fee > 0 ? `${fee.toFixed(4)} SOL of this sale` : "It"} goes to the people still holding. Hold, and you're the one getting paid.${esc(streak)}`;
+      const streak = W?.streakDays > 0 ? ` It also resets your ${W.streakDays} days of devotion${W.multiplier > 1 ? ` and your ${W.multiplier}× boost` : ""}.` : "";
+      warn.innerHTML = `<b>Leaving costs ${tax}%.</b> ${fee > 0 ? `${fee.toFixed(4)} SOL of this sale` : "It"} goes to the members who stay. Stay, and you're the one getting paid.${esc(streak)}`;
     }
     if (!(amt > 0) || !pool) { q.innerHTML = ""; return; }
     const sol = Number(pool.solReserve) / 1e9, tok = Number(pool.tokenReserve) / 10 ** pool.decimals;
     if (side === "buy") {
       const imp = (amt / (sol + amt)) * 100;
-      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">No tax on buys.</div>${impact(imp)}`;
+      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">Joining is free: no tax on buys.</div>${impact(imp)}`;
     } else {
       const gross = (amt * sol) / (tok + amt), fee = (gross * pool.feeBps) / 10_000;
       const imp = (amt / (tok + amt)) * 100;
-      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="mint mono">${fee.toFixed(4)} SOL</span> of it goes to the holders.</div>${impact(imp)}`;
+      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="mint mono">${fee.toFixed(4)} SOL</span> of it goes to the cult.</div>${impact(imp)}`;
     }
   }
   $("sideSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setSide(b.dataset.v); });
@@ -366,10 +366,10 @@
       armed = true;
       $("streakWarn").classList.add("armed");
       $("tradeGo").classList.remove("mint"); // the bright button is for holding, not for this
-      $("tradeGo").textContent = `Sell anyway, pay ${(pool?.feeBps ?? S.sellTaxBps) / 100}%`;
+      $("tradeGo").textContent = `Leave anyway, pay ${(pool?.feeBps ?? S.sellTaxBps) / 100}%`;
       return;
     }
-    if (S.demo) { toast("Sample data. On launch this trades against the $PAPER pool."); disarm(); return; }
+    if (S.demo) { toast(`Sample data. On launch this trades against the $${S.ticker} pool.`); disarm(); return; }
     if (!wallet) { await connect(); if (!wallet) return; }
     const go = $("tradeGo"), label = go.textContent;
     const amt = Number($("amtIn").value.replace(/,/g, ""));
@@ -395,7 +395,7 @@
           if (S.clientRpc) { const v = (await rpc("getSignatureStatuses", [[sig]])).value[0]; st = !v ? "sent" : v.err ? "failed" : ["confirmed", "finalized"].includes(v.confirmationStatus) ? "confirmed" : "sent"; }
           else st = (await api("/api/tx/" + sig)).status;
         } catch {}
-        if (st === "confirmed") { toast(side === "buy" ? "Bought. Welcome, diamond hands." : "Sold. Your 15% just went to the holders."); $("tradeDlg").close(); load(); return; }
+        if (st === "confirmed") { toast(side === "buy" ? "Welcome to the cult." : "You left. Your 15% just paid the members."); $("tradeDlg").close(); load(); return; }
         if (st === "failed") throw new Error("Solana refused the trade. Nothing was spent.");
       }
       toast("Not confirmed yet. Check your wallet's activity before trying again.");

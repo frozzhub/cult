@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>$PAPER</title>
-  <meta name="description" content="Paper hands pay diamond hands. 0% to buy, 15% to sell, and every 10 minutes the sell tax is split between holders in USDC.">
+  <title>CULT</title>
+  <meta name="description" content="Everyone's panicking. The cult is getting paid. Joining is free, leaving costs 15%, and every 10 minutes it's split between the members in USDC.">
   <meta name="theme-color" content="#0d0e10">
   <!-- Link previews (X, Telegram, Discord). The Worker makes og:image absolute for whichever domain serves it. -->
-  <meta property="og:title" content="$PAPER: paper hands pay diamond hands">
-  <meta property="og:description" content="0% to buy, 15% to sell. Every 10 minutes the sell tax is split between holders in USDC.">
+  <meta property="og:title" content="$CULT: the cult gets paid">
+  <meta property="og:description" content="Joining is free. Leaving costs 15%, and every 10 minutes it's split between the members in USDC.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="/og.png">
   <meta property="og:image:width" content="1200">
@@ -24,10 +24,13 @@
 <body>
 <header>
   <div class="bar">
-    <a class="logo" href="/"><i></i>$PAPER <span class="net" id="net" hidden>devnet</span></a>
+    <a class="logo" href="/" aria-label="CULT home">
+      <svg class="mark" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="10" r="3.2" fill="var(--mint)"/></svg>
+      <span class="word">CULT</span> <span class="net" id="net" hidden>devnet</span>
+    </a>
     <nav class="tabs" id="tabs">
-      <button data-tab="home" class="on">Airdrop</button>
-      <button data-tab="wall">Wall</button>
+      <button data-tab="home" class="on">The cult</button>
+      <button data-tab="wall">Left the cult</button>
       <button data-tab="drops">Payouts</button>
     </nav>
     <button class="btn small" id="walletBtn">Connect</button>
@@ -36,20 +39,20 @@
 </header>
 
 <main>
-  <!-- AIRDROP -->
+  <!-- THE CULT -->
   <section class="view on" id="view-home">
     <div class="hero">
-      <div class="eyebrow" id="eyebrow">Next airdrop in</div>
+      <div class="eyebrow" id="eyebrow">The cult gets paid in</div>
       <div class="clock" id="clock">--:--</div>
       <div class="hourbar" aria-hidden="true"><div id="hourFill"></div></div>
-      <div class="pot" id="pot" hidden><span class="n" id="potN">$0.00</span><span class="bump" id="potBump"></span><small>in this round's pot, paid by sellers</small></div>
-      <p class="line" id="line">Paper hands pay 15%. Diamond hands split it in USDC every 10 minutes. A ponzi game. No promised returns.</p>
+      <div class="pot" id="pot" hidden><span class="n" id="potN">$0.00</span><span class="bump" id="potBump"></span><small>paid in this round by those who left</small></div>
+      <p class="line" id="line">Everyone's panicking. The cult is getting paid. Leaving costs 15%, and it goes to those who stay. A ponzi game. No promised returns.</p>
 
       <div class="mine" id="mine" hidden>
         <div class="cut"><span class="est" id="mEst"></span><span class="lbl">your cut this round</span></div>
         <div class="facts">
-          <div><b id="mBal"></b><span>$PAPER held</span></div>
-          <div><b id="mMult"></b><span>streak boost</span></div>
+          <div><b id="mBal"></b><span>$CULT held</span></div>
+          <div><b id="mMult"></b><span>devotion boost</span></div>
           <div><b id="mGot"></b><span>received</span></div>
         </div>
         <div class="streak"><div id="streakBar"></div></div>
@@ -57,7 +60,7 @@
       </div>
 
       <div class="cta" id="cta">
-        <button class="btn mint" data-trade="buy">Buy</button>
+        <button class="btn mint" data-trade="buy">Join</button>
         <button class="btn" data-trade="sell">Sell</button>
       </div>
     </div>
@@ -65,7 +68,7 @@
     <section class="market" id="market" hidden aria-labelledby="priceTitle">
       <div class="mhead">
         <div>
-          <div class="mlabel" id="priceTitle">$PAPER price</div>
+          <div class="mlabel" id="priceTitle">$CULT price</div>
           <div class="price"><span class="n" id="priceN"></span><span class="chg" id="priceChg"></span></div>
         </div>
         <div class="seg" id="rangeSeg" role="group" aria-label="Chart range">
@@ -76,13 +79,13 @@
         <svg id="chartSvg" aria-hidden="true"></svg>
         <div class="tip" id="tip" hidden><b id="tipV"></b><span id="tipT"></span></div>
       </div>
-      <table class="sr-only" id="chartTable"><caption>$PAPER price over the selected range</caption><thead><tr><th>Time</th><th>Price (USD)</th></tr></thead><tbody></tbody></table>
+      <table class="sr-only" id="chartTable"><caption>$CULT price over the selected range</caption><thead><tr><th>Time</th><th>Price (USD)</th></tr></thead><tbody></tbody></table>
     </section>
 
     <div class="totals" id="totals" hidden>
       <div id="tVol"><div class="n" id="volN"></div><div class="l">total volume</div></div>
-      <div id="tPaid"><div class="n mint" id="paidN"></div><div class="l">USDC airdropped to holders</div></div>
-      <div id="tHolders"><div class="n" id="holdersN"></div><div class="l">holders in the last round</div></div>
+      <div id="tPaid"><div class="n mint" id="paidN"></div><div class="l">USDC paid to members</div></div>
+      <div id="tHolders"><div class="n" id="holdersN"></div><div class="l">members paid last round</div></div>
       <div id="tDrops"><div class="n" id="dropsN"></div><div class="l">rounds paid</div></div>
     </div>
 
@@ -90,26 +93,26 @@
       <div>
         <h2>How it works</h2>
         <ol class="steps">
-          <li><div>Buy $PAPER. No tax on buys.</div></li>
-          <li><div>Every sell pays 15%, taken in SOL so it never dumps the chart.</div></li>
-          <li><div id="howDrop">Every 10 minutes, the pot is swapped to USDC and split by holdings.</div></li>
-          <li><div id="howHold">Hold $50 or more to get paid. Hold longer for up to 1.5× the cut.</div></li>
+          <li><div>Join by buying $CULT. Joining is free: no tax on buys.</div></li>
+          <li><div>Leaving costs 15%: the exit tithe, taken in SOL so it never dumps the chart.</div></li>
+          <li><div id="howDrop">Every 10 minutes, the tithe is swapped to USDC and split between members.</div></li>
+          <li><div id="howHold">Hold $50 or more to be counted. Stay longer and your devotion earns up to 1.5× the cut.</div></li>
         </ol>
         <details class="fine"><summary>Rules</summary><ul id="rules"></ul></details>
       </div>
       <div class="calc" id="calc" hidden>
         <label for="calcIn">If you held</label>
-        <div class="field"><input type="text" id="calcIn" inputmode="numeric" value="1,000,000"><span>$PAPER</span></div>
+        <div class="field"><input type="text" id="calcIn" inputmode="numeric" value="1,000,000"><span>$CULT</span></div>
         <div class="out" id="calcOut"></div>
       </div>
     </div>
   </section>
 
-  <!-- WALL -->
+  <!-- LEFT THE CULT -->
   <section class="view" id="view-wall">
     <div class="narrow">
-      <h1>Wall of Paper Hands</h1>
-      <p class="lead">Everyone who sold, and what it cost them. Every cent went to the holders.</p>
+      <h1>Left the cult</h1>
+      <p class="lead">Everyone who walked out, and the tithe they paid on the way. Every cent went to the members who stayed.</p>
       <div class="seg" id="wallSeg"><button data-v="top" class="on">All time</button><button data-v="latest">Latest</button></div>
       <div class="rows" id="wallList"></div>
     </div>
@@ -126,7 +129,7 @@
 </main>
 
 <div class="dock" id="dock">
-  <button class="btn mint" data-trade="buy">Buy</button>
+  <button class="btn mint" data-trade="buy">Join</button>
   <button class="btn" data-trade="sell">Sell</button>
 </div>
 
