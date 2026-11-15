@@ -129,7 +129,7 @@ Airdrops run every **10 minutes** (`DROP_MINUTES="10"`), and the cron runs every
 ## Brand (2026-11-15)
 
 - **Name:** Cult, ticker $CULT. Line: *Everyone's panicking. The cult is getting paid.*
-- **Mark:** the inner circle, a bone ring with a mint dot. Members inside, the market outside. Sources are in `brand/` (`*.html`, rendered to `*.png` with headless Edge).
+- **Mark (updated 2026-11-15):** a hooded member, the inner circle worn as a halo and the mint dot glowing under the hood (`brand/hooded/`). It's used as `public/mark.svg` (header), `public/icon.svg` (favicon) and `public/logo.png` (token image and apple-touch icon). The first ring-and-dot mark is superseded. Sources are in `brand/` (`*.html`, rendered to `*.png` with headless Edge).
 - **Colour:** Night `#0D0E10`, Surface `#15171A`, Bone `#ECEAE4`, Mint `#8EE4B8` (mint means USDC paid, plus the Join button).
 - **Type:** Inter Tight for words, JetBrains Mono for every number.
 - **Voice:** holders are members, buying is joining, the 15% sell tax is the exit tithe, the holding streak is devotion, sellers have left the cult, and the airdrop is the cult getting paid. The trade panel keeps plain Buy and Sell labels.

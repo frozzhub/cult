@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <g id="mark">
+    <defs>
+      <radialGradient id="cultGlow" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#8ee4b8" stop-opacity="0.55"/>
+        <stop offset="1" stop-color="#8ee4b8" stop-opacity="0"/>
+      </radialGradient>
+      <clipPath id="cultFrame"><rect width="512" height="512"/></clipPath>
+    </defs>
+    <g clip-path="url(#cultFrame)">
+      <!-- the inner circle, worn as a halo -->
+      <circle cx="256" cy="222" r="176" fill="none" stroke="#e9e4d8" stroke-width="14"/>
+
+      <!-- hooded member -->
+      <path d="M256,70 C186,96 148,170 148,252 C148,306 112,372 70,530 L442,530 C400,372 364,306 364,252 C364,170 326,96 256,70 Z"
+            fill="#e9e4d8" stroke="#0d0e10" stroke-width="14" stroke-linejoin="round"/>
+      <!-- robe folds -->
+      <g fill="none" stroke="#0d0e10" stroke-width="6" stroke-linecap="round" opacity="0.55">
+        <path d="M256,372 V530"/>
+        <path d="M196,390 C184,430 172,470 164,530"/>
+        <path d="M316,390 C328,430 340,470 348,530"/>
+      </g>
+
+      <!-- the void under the hood -->
+      <path d="M256,140 C212,158 192,212 192,262 C192,318 224,356 256,356 C288,356 320,318 320,262 C320,212 300,158 256,140 Z" fill="#0d0e10"/>
+
+      <!-- the mint dot: what the cult is paid in -->
+      <circle cx="256" cy="262" r="58" fill="url(#cultGlow)"/>
+      <circle cx="256" cy="262" r="22" fill="#8ee4b8"/>
+    </g>
+  </g>
+</svg>

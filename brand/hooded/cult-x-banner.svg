@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" width="1500" height="500">
   <rect width="1500" height="500" fill="#0d0e10"/>
   <defs><clipPath id="roundCrop"><circle cx="256" cy="256" r="256"/></clipPath></defs>
-  <g transform="translate(120,45) scale(0.8)">
+  <g transform="translate(184,45) scale(0.8)">
     <g clip-path="url(#roundCrop)">
       <rect width="512" height="512" fill="#15171a"/>
   <g id="mark">
@@ -36,11 +36,13 @@
   </g>
     </g>
   </g>
-  <g fill="none" stroke="#e9e4d8" stroke-width="34">
-    <path d="M748,132 A75,75 0 1 0 748,238"/>
-    <path d="M830,110 V200 A60,60 0 0 0 950,200 V110"/>
-    <path d="M1020,110 V243 H1120"/>
-    <path d="M1160,127 H1300 M1230,127 V260"/>
+  <g transform="translate(64,0)">
+    <g fill="none" stroke="#e9e4d8" stroke-width="34">
+      <path d="M736,175 A58,58 0 1 0 736,257"/>
+      <path d="M801,141 V214 A60,60 0 0 0 921,214 V141"/>
+      <path d="M995,141 V274 H1091"/>
+      <path d="M1109,158 H1253 M1181,158 V291"/>
+    </g>
+    <text x="620" y="354" textLength="633" lengthAdjust="spacingAndGlyphs" font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="600" font-size="31" fill="#9a978f">Everyone's panicking. <tspan fill="#8ee4b8">The cult is getting paid.</tspan></text>
   </g>
-  <text x="622" y="352" font-family="'Inter Tight','Inter','Segoe UI',Arial,sans-serif" font-weight="600" font-size="34" fill="#9a978f">Everyone's panicking. <tspan fill="#8ee4b8">The cult is getting paid.</tspan></text>
 </svg>
