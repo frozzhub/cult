@@ -1,4 +1,4 @@
-/* $PAPER: one clock, one pot, one accent. Patterns borrowed from the classics (a single countdown as the hero,
+/* CULT: one clock, one pot, one accent. Patterns borrowed from the classics (a single countdown as the hero,
    pot under the clock, "your next reward" estimate, streak as commitment), none of their chrome. */
 :root {
   --bg: #0d0e10; --surface: #15171a; --hover: #1c1f23; --line: #24272c;
@@ -22,8 +22,10 @@ button, input { font: inherit; color: inherit; }
 /* header */
 header { position: sticky; top: 0; z-index: 20; background: rgba(13, 14, 16, .86); backdrop-filter: blur(12px); }
 .bar { max-width: 1080px; margin: 0 auto; display: flex; align-items: center; gap: 28px; padding: 14px 20px; }
-.logo { font-weight: 700; font-size: 17px; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
-.logo i { width: 9px; height: 9px; border-radius: 50%; background: var(--mint); display: inline-block; }
+.logo { font-weight: 700; font-size: 16px; text-decoration: none; white-space: nowrap; display: flex; align-items: center; gap: 9px; }
+/* The mark: the inner circle. Members inside, the market outside. */
+.logo .mark { width: 19px; height: 19px; color: var(--text); flex: none; }
+.logo .word { letter-spacing: .14em; }
 .net { font: 500 11px var(--mono); color: var(--muted); background: var(--surface); padding: 3px 7px; border-radius: 6px; }
 nav.tabs { display: flex; gap: 2px; flex: 1; }
 nav.tabs button { background: none; border: 0; padding: 6px 11px; border-radius: 7px; color: var(--muted); cursor: pointer; white-space: nowrap; font-weight: 500; }

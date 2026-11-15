@@ -1,4 +1,7 @@
-# $PAPER
+# CULT ($CULT)
+
+> Renamed from $PAPER on 2026-11-15. The repo folder and the devnet Worker URL keep the old `paper-hands` name.
+
 
 0% buy tax, 15% sell tax, all of it airdropped to holders as USDC every 10 minutes (`DROP_MINUTES`, cron every minute). Hold 7 days without selling for a 1.25× share, 30 days for 1.5×.
 
@@ -122,3 +125,13 @@ Airdrops run every **10 minutes** (`DROP_MINUTES="10"`), and the cron runs every
 - **API**: `GET /api/chart?range=24h|7d|all` returns up to 120 points (last price per bucket, carried forward through quiet stretches, ending at the live pool price). `/api/state` totals add `volumeUsd` and `trades`.
 - **Page**: the price in compact form ($0.0₃420) and its change over the range, a single-series mint line with a soft fill, crosshair and tooltip (keyboard: arrows, Home/End, Escape), and a screen-reader table. The totals row is total volume, USDC airdropped to holders, holders in the last round, and rounds paid.
 - **Backfill**: deleting the `poll_cursor` and `poll_state` kv rows makes the poller re-read the mint's full history. It's safe, since every insert skips duplicates.
+
+## Brand (2026-11-15)
+
+- **Name:** Cult, ticker $CULT. Line: *Everyone's panicking. The cult is getting paid.*
+- **Mark:** the inner circle, a bone ring with a mint dot. Members inside, the market outside. Sources are in `brand/` (`*.html`, rendered to `*.png` with headless Edge).
+- **Colour:** Night `#0D0E10`, Surface `#15171A`, Bone `#ECEAE4`, Mint `#8EE4B8` (mint means USDC paid, plus the Join button).
+- **Type:** Inter Tight for words, JetBrains Mono for every number.
+- **Voice:** holders are members, buying is joining, the 15% sell tax is the exit tithe, the holding streak is devotion, sellers have left the cult, and the airdrop is the cult getting paid. The trade panel keeps plain Buy and Sell labels.
+- **Assets:** `brand/board.png` (brand board), `brand/og.png` (the link preview, copied to `public/`), `brand/x-launch.png` (1600x900), `brand/logo.png` (512px, used in `public/token.json`).
+- **Devnet token renamed on-chain:** `node scripts/rename-token.mjs --mint ... --name Cult --symbol CULT --uri .../token.json`.
