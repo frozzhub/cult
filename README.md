@@ -106,7 +106,7 @@ Based on research into classic "ponzi" UIs (Fomo3D's single countdown with the p
 - **Connected wallet**: the line becomes "your cut this hour", with balance, multiplier, USDC received and a thin streak bar.
 - **Live ticker**: a slow ticker of sells under the header. New Wall rows fade in.
 - **End of the hour**: the clock shows "Paying $X to holders" for 4 seconds.
-- **Look**: palette `#0d0e10` / `#15171a` / `#eceae4`, one accent mint `#8ee4b8`. Inter Tight for text, JetBrains Mono for every number. No APYs, no tile grids, no red for sellers (the copy does the shaming).
+- **Look**: palette `#0d0e10` / `#15171a` / `#eceae4`, one accent (originally mint; USDC blue `#2775CA` since 2026-11-15, see Brand). Inter Tight for text, JetBrains Mono for every number. No APYs, no tile grids, no red for sellers (the copy does the shaming).
 ## Real payouts on devnet (2026-11-14)
 
 Devnet now runs the real payout path (`DRY_RUN="0"`): it signs and sends batched token transfers, opens holders' token accounts, confirms, and re-sends only expired batches. Jupiter and USDC are mainnet-only, so devnet uses:
