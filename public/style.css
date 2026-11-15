@@ -40,6 +40,13 @@ nav.tabs button.on { color: var(--text); background: var(--surface); }
 .btn.small { padding: 7px 13px; font-size: 13px; border-radius: 9px; }
 .btn:disabled { opacity: .45; cursor: default; }
 
+/* header buttons: Launch (not built yet: shaded, says so on hover/tap) + Connect */
+.hbtns { display: flex; align-items: center; gap: 8px; }
+.btn.soon { position: relative; color: var(--dim); background: var(--surface); cursor: not-allowed; }
+.btn.soon:hover { background: var(--surface); color: var(--muted); }
+.btn.soon::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; transform: translate(-50%, -2px); background: var(--hover); border: 1px solid var(--line); color: var(--text); font: 500 12px var(--sans); padding: 5px 9px; border-radius: 7px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; }
+.btn.soon:hover::after, .btn.soon:focus-visible::after, .btn.soon.tipping::after { opacity: 1; transform: translate(-50%, 0); }
+
 /* live ticker */
 .ticker { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; font-size: 13px; color: var(--muted); mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
 .ticker .track { display: inline-flex; gap: 40px; padding: 8px 0; animation: tick 60s linear infinite; }
@@ -213,7 +220,7 @@ dialog#tradeDlg::backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: blu
 @media (max-width: 560px) {
   .bar { gap: 10px; padding: 11px 16px; flex-wrap: wrap; }
   nav.tabs { order: 3; flex-basis: 100%; margin: 0 -4px; }
-  #walletBtn { margin-left: auto; }
+  .hbtns { margin-left: auto; }
   main { padding: 0 16px 110px; }
   .hero { padding: 46px 0 36px; }
   .cta { display: none; }
