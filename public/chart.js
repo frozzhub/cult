@@ -47,7 +47,7 @@
       const line = xy.map(([a, b], i) => (i ? "L" : "M") + a.toFixed(1) + " " + b.toFixed(1)).join(" ");
 
       const defs = el("defs"), grad = el("linearGradient", { id: "pfill", x1: 0, y1: 0, x2: 0, y2: 1 });
-      grad.append(el("stop", { offset: "0%", "stop-color": "var(--mint)", "stop-opacity": 0.16 }), el("stop", { offset: "100%", "stop-color": "var(--mint)", "stop-opacity": 0 }));
+      grad.append(el("stop", { offset: "0%", "stop-color": "var(--accent)", "stop-opacity": 0.16 }), el("stop", { offset: "100%", "stop-color": "var(--accent)", "stop-opacity": 0 }));
       defs.append(grad);
       svg.append(defs);
       svg.append(el("path", { d: `${line} L${xy.at(-1)[0].toFixed(1)} ${base} L${xy[0][0].toFixed(1)} ${base} Z`, fill: "url(#pfill)" }));

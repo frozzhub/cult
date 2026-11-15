@@ -130,7 +130,7 @@ Airdrops run every **10 minutes** (`DROP_MINUTES="10"`), and the cron runs every
 
 - **Name:** Cult, ticker $CULT. Line: *Everyone's panicking. The cult is getting paid.*
 - **Mark (updated 2026-11-15):** a hooded member, the inner circle worn as a halo and the mint dot glowing under the hood (`brand/hooded/`). It's used as `public/mark.svg` (header), `public/icon.svg` (favicon) and `public/logo.png` (token image and apple-touch icon). The first ring-and-dot mark is superseded. Sources are in `brand/` (`*.html`, rendered to `*.png` with headless Edge).
-- **Colour:** Night `#0D0E10`, Surface `#15171A`, Bone `#ECEAE4`, Mint `#8EE4B8` (mint means USDC paid, plus the Join button).
+- **Colour (updated 2026-11-15 to USDC blue):** Night `#0D0E10`, Surface `#15171A`, Bone `#ECEAE4` (logo bone `#E9E4D8`), USDC blue `#2775CA` for fills, lines, the logo dot and the Join button (white text, 4.7:1). Small blue text uses the tint `#4B8FD8` (5.7:1), because `#2775CA` is only 4.1:1 on Night. CSS tokens: `--accent` and `--accent-ink`.
 - **Type:** Inter Tight for words, JetBrains Mono for every number.
 - **Voice:** holders are members, buying is joining, the 15% sell tax is the exit tithe, the holding streak is devotion, sellers have left the cult, and the airdrop is the cult getting paid. The trade panel keeps plain Buy and Sell labels.
 - **Assets:** `brand/board.png` (brand board), `brand/og.png` (the link preview, copied to `public/`), `brand/x-launch.png` (1600x900), `brand/logo.png` (512px, used in `public/token.json`).
