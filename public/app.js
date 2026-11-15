@@ -28,7 +28,7 @@
 
   /* ---------- tabs (hash routed) ---------- */
   function show(tab) {
-    if (!["home", "wall", "drops"].includes(tab)) tab = "home";
+    if (!["home", "members", "wall", "drops"].includes(tab)) tab = "home";
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
     document.querySelectorAll("section.view").forEach((v) => v.classList.toggle("on", v.id === "view-" + tab));
     window.scrollTo(0, 0);
@@ -82,7 +82,8 @@
     $("walletBtn").hidden = !live;
     document.querySelector('#tabs [data-tab="wall"]').hidden = !(live && S.wall.top.length);
     document.querySelector('#tabs [data-tab="drops"]').hidden = !(live && S.drops.length);
-    $("tabs").style.visibility = live && (S.wall.top.length || S.drops.length) ? "" : "hidden"; // one tab alone is no menu
+    document.querySelector('#tabs [data-tab="members"]').hidden = !(live && S.members?.length);
+    $("tabs").style.visibility = live && (S.wall.top.length || S.drops.length || S.members?.length) ? "" : "hidden"; // one tab alone is no menu
     if (!live) return;
 
     $("pot").hidden = !(S.pending > 0);
@@ -101,6 +102,7 @@
     tick();
     renderTicker();
     renderWall();
+    renderMembers();
     renderDrops();
     renderCalc();
   }
@@ -155,6 +157,18 @@
     $("wallSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     renderWall();
   });
+
+  // The faithful: most USDC received. Your own row is marked.
+  function renderMembers() {
+    $("memberList").innerHTML = (S.members || []).map((x, i) => {
+      const held = x.devotionDays == null ? "has left the cult" : `held ${x.devotionDays}d · ${x.multiplier}×`;
+      const you = wallet && x.wallet === wallet;
+      return `<a class="row${you ? " you" : ""}" data-acct="${esc(x.wallet)}">
+        <div class="rank">${i + 1}</div>${avatar(x.wallet)}
+        <div class="body"><div class="t">${esc(short(x.wallet))}${you ? ' <span class="me">you</span>' : ""}</div><div class="d">${held} · paid in ${x.rounds.toLocaleString("en-US")} rounds</div></div>
+        <div class="end"><div class="a">${usd(x.receivedUsdc)}</div></div></a>`;
+    }).join("");
+  }
 
   function renderDrops() {
     $("dropList").innerHTML = S.drops.map((d) => `<a class="row"${d.tx ? ` data-tx="${esc(d.tx)}"` : ""}>

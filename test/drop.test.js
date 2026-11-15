@@ -144,6 +144,12 @@ test("the API shows the airdrop, the Wall and a holder's share", async () => {
   assert.equal(s.wall.top.length, 3);
   assert.equal(Math.round(s.wall.top[0].paidUsdc), 20); // 0.1 SOL at $200
   assert.equal(s.pending, 0);
+  // Members leaderboard: the biggest bag got the most, and amounts match what was paid.
+  assert.equal(s.members.length, 20);
+  assert.equal(s.members[0].wallet, holders[20]);
+  assert.ok(Math.abs(s.members[0].receivedUsdc - 30 * 2.1 / 23) < 0.001);
+  assert.ok(s.members.every((m, i, a) => i === 0 || a[i - 1].receivedUsdc >= m.receivedUsdc), "sorted by USDC received");
+  assert.ok(Math.abs(s.members.reduce((a, m) => a + m.receivedUsdc, 0) - s.totals.paidUsdc) < 0.001, "leaderboard adds up to total paid");
 
   const rich = holders[20];
   const w = await api("/api/wallet/" + rich);
