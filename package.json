@@ -1,24 +1,25 @@
 {
-    "name":  "paper-hands",
-    "version":  "0.1.0",
-    "private":  true,
-    "type":  "module",
-    "description":  "$PAPER: 0% buy, 15% sell tax, all of it airdropped to holders as USDC. Cloudflare Worker site + API.",
-    "scripts":  {
-                    "dev":  "wrangler dev",
-                    "deploy":  "wrangler deploy",
-                    "test":  "node --test \"test/*.test.js\"",
-                    "db:local":  "wrangler d1 migrations apply paper-hands --local",
-                    "build:programs":  "cargo build-sbf --manifest-path programs/paper-hook/Cargo.toml \u0026\u0026 cargo build-sbf --manifest-path programs/paper-pool/Cargo.toml",
-                    "test:programs":  "cd programs-tests \u0026\u0026 cargo +stable-x86_64-pc-windows-msvc test",
-                    "test:devnet":  "node --test test/devnet.live.mjs"
-                },
-    "devDependencies":  {
-                            "wrangler":  "^4.0.0"
-                        },
-    "dependencies":  {
-                         "@solana/spl-token":  "^0.4.15",
-                         "@solana/spl-token-metadata":  "^0.1.6",
-                         "@solana/web3.js":  "^1.99.0"
-                     }
+    "name": "paper-hands",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "$PAPER: 0% buy, 15% sell tax, all of it airdropped to holders as USDC. Cloudflare Worker site + API.",
+    "scripts": {
+        "dev": "wrangler dev",
+        "deploy": "wrangler deploy",
+        "test": "node --test \"test/*.test.js\"",
+        "db:local": "wrangler d1 migrations apply paper-hands --local",
+        "build:programs": "cargo build-sbf --manifest-path programs/paper-hook/Cargo.toml && cargo build-sbf --manifest-path programs/paper-pool/Cargo.toml",
+        "test:programs": "cd programs-tests && cargo +stable-x86_64-pc-windows-msvc test",
+        "test:devnet": "node --test test/devnet.live.mjs"
+    },
+    "devDependencies": {
+        "wrangler": "^4.0.0"
+    },
+    "dependencies": {
+        "@noble/curves": "^2.4.0",
+        "@solana/spl-token": "^0.4.15",
+        "@solana/spl-token-metadata": "^0.1.6",
+        "@solana/web3.js": "^1.99.0"
+    }
 }

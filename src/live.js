@@ -1,6 +1,7 @@
 // /api/state and /api/wallet from D1 (what the indexer has recorded).
 import { streakMult, nextStreak } from "./config.js";
 import { cachedPrices } from "./indexer.js";
+import { profilesFor } from "./profiles.js";
 
 const DAY = 86_400_000;
 
@@ -29,8 +30,11 @@ export async function liveState(env, cfg) {
   const doneCount = totals.results[0].drops;
   const shown = drops.results;
   const usd = (lamports, price) => (lamports / 1e9) * price;
+  // X names and pictures for everyone shown on the boards.
+  const profiles = await profilesFor(db, [...top.results, ...latest.results, ...memb.results].map((r) => r.wallet)).catch(() => ({}));
   return {
     live: true,
+    profiles,
     price: token,
     eligibleSupply: last.results[0]?.weight_total || 0,
     totals: { paidUsdc: totals.results[0].paid / 1e6, drops: doneCount, holders: last.results[0]?.holders || 0, volumeUsd: vol.results[0].v, trades: vol.results[0].n },
