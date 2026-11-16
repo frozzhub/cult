@@ -45,6 +45,13 @@
     show(b.dataset.tab);
   });
   window.addEventListener("hashchange", () => show(location.hash.slice(1)));
+  // The logo is the way home (there's no Home tab): switch views in place instead of reloading.
+  document.querySelector(".logo").addEventListener("click", (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; // let new-tab clicks through
+    e.preventDefault();
+    history.replaceState(null, "", location.pathname + location.search);
+    show("home");
+  });
 
   /* ---------- the pot rolls up instead of jumping ---------- */
   let potShown = null;
