@@ -8,7 +8,7 @@
 // DEMO="1" serves generated sample data. With DEMO off and no MINT, the site shows a pre-launch state.
 import { config } from "./config.js";
 import { handleWebhook, tick } from "./indexer.js";
-import { liveState, liveWallet, liveChart, RANGES } from "./live.js";
+import { liveState, liveWallet, liveChart, RANGES, liveCumulative, cumulativeSeries } from "./live.js";
 import { handleTrade, tradeReady, poolAccounts } from "./trade.js";
 import { handleProfiles, syncX } from "./profiles.js";
 
@@ -25,6 +25,7 @@ export default {
       const demo = url.searchParams.get("demo") === "1" && env.CLUSTER === "devnet";
       if (url.pathname === "/api/state") return json(await state(demo ? { ...env, DEMO: "1" } : env));
       if (url.pathname === "/api/chart") return json(await chart(demo ? { ...env, DEMO: "1" } : env, url.searchParams.get("range")));
+      if (url.pathname === "/api/payouts/chart") return json(await payoutsChart(demo ? { ...env, DEMO: "1" } : env));
       if (/^\/api\/(pool|trade|send|tx\/)/.test(url.pathname)) return await handleTrade(req, env, config(env), url.pathname);
       const m = url.pathname.match(/^\/api\/wallet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (m) return json(await walletInfo(demo ? { ...env, DEMO: "1" } : env, m[1]));
@@ -75,6 +76,13 @@ async function chart(env, range) {
   if (cfg.demo) return demoChart(range);
   if (cfg.mint && env.DB) return liveChart(env, cfg, range);
   return { range, points: [] };
+}
+
+async function payoutsChart(env) {
+  const cfg = config(env);
+  if (cfg.demo) return demoCumulative(cfg.dropMinutes * 60_000);
+  if (cfg.mint && env.DB) return liveCumulative(env);
+  return { points: [], total: 0, rounds: 0 };
 }
 
 async function walletInfo(env, address) {
@@ -193,4 +201,12 @@ function demoMembers(paid, rounds) {
     const share = r() ** 2.6 * 0.03; // a few whales, a long tail
     return { wallet: addr(r), receivedUsdc: round2(paid * share), rounds: Math.max(1, Math.min(rounds, Math.round(devotionDays * 144 * (0.7 + r() * 0.3)))), balance: Math.round(200_000 + share * 400_000_000), devotionDays, multiplier: devotionDays >= 30 ? 1.5 : devotionDays >= 7 ? 1.25 : 1 };
   }).sort((a, b) => b.receivedUsdc - a.receivedUsdc);
+}
+// Sample running total: every sample drop since the sample launch, the same ones the totals add up.
+function demoCumulative(P = HOUR) {
+  const cur = Math.floor(Date.now() / P), first = Math.floor(DEMO_LAUNCH / P);
+  const drops = [];
+  for (let k = first + 1; k <= cur; k++) { const d = demoDrop(k, P); drops.push({ at: Date.parse(d.at), usdc: d.usdc }); }
+  const points = cumulativeSeries(drops);
+  return { points, total: Math.round((points.at(-1)?.[1] || 0) * 100) / 100, rounds: drops.length };
 }

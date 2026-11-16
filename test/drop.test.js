@@ -150,6 +150,10 @@ test("the API shows the airdrop, the Wall and a holder's share", async () => {
   assert.ok(Math.abs(s.members[0].receivedUsdc - 30 * 2.1 / 23) < 0.001);
   assert.ok(s.members.every((m, i, a) => i === 0 || a[i - 1].receivedUsdc >= m.receivedUsdc), "sorted by USDC received");
   assert.ok(Math.abs(s.members.reduce((a, m) => a + m.receivedUsdc, 0) - s.totals.paidUsdc) < 0.001, "leaderboard adds up to total paid");
+  // Payouts chart: running total ends at the same total.
+  const c = await api("/api/payouts/chart");
+  assert.equal(c.rounds, 1);
+  assert.ok(Math.abs(c.total - s.totals.paidUsdc) < 0.001);
 
   const rich = holders[20];
   const w = await api("/api/wallet/" + rich);

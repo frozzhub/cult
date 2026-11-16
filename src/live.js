@@ -120,3 +120,18 @@ export async function liveChart(env, cfg, range) {
   const points = bucketSeries(rows.results, { from, to: now, startPrice: before.results[0]?.usd ?? null, nowPrice: token || null });
   return { range, points };
 }
+// Running total of USDC paid to members, for the Payouts chart: [[at, total, roundPaid], ...], at most `max`
+// points (evenly thinned, always keeping the latest so the line ends at the true total).
+export function cumulativeSeries(drops, max = 160) {
+  let total = 0;
+  const all = drops.map((d) => { total += d.usdc; return [d.at, total, d.usdc]; });
+  if (all.length <= max) return all;
+  const step = (all.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => all[Math.round(i * step)]);
+}
+
+export async function liveCumulative(env) {
+  const rows = (await env.DB.prepare("SELECT at, usdc_micro FROM drops WHERE status = 'done' AND usdc_micro > 0 ORDER BY at").all()).results;
+  const points = cumulativeSeries(rows.map((r) => ({ at: r.at, usdc: r.usdc_micro / 1e6 })));
+  return { points, total: points.at(-1)?.[1] || 0, rounds: rows.length };
+}

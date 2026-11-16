@@ -147,3 +147,15 @@ test("bucketSeries: last price per bucket, carried forward, ends at the live pri
   assert.deepEqual(bucketSeries([], { from: 0, to: 100, buckets: 2, startPrice: 7 }), [[50, 7], [100, 7]]);
   assert.deepEqual(bucketSeries([], { from: 0, to: 100 }), []);
 });
+test("cumulativeSeries: running total that only goes up, thinned evenly, always ending at the true total", async () => {
+  const { cumulativeSeries } = await import("../src/live.js");
+  const drops = [{ at: 1, usdc: 2 }, { at: 2, usdc: 0.5 }, { at: 3, usdc: 1.5 }];
+  assert.deepEqual(cumulativeSeries(drops), [[1, 2, 2], [2, 2.5, 0.5], [3, 4, 1.5]]);
+  const many = Array.from({ length: 1000 }, (_, i) => ({ at: i, usdc: 1 }));
+  const s = cumulativeSeries(many, 160);
+  assert.equal(s.length, 160);
+  assert.deepEqual(s.at(-1), [999, 1000, 1]);
+  assert.deepEqual(s[0], [0, 1, 1]);
+  assert.ok(s.every((p, i, a) => !i || p[1] >= a[i - 1][1]));
+  assert.deepEqual(cumulativeSeries([]), []);
+});

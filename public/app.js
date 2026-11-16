@@ -37,6 +37,7 @@
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
     document.querySelectorAll("section.view").forEach((v) => v.classList.toggle("on", v.id === "view-" + tab));
     if (viewing) renderProfile();
+    if (tab === "drops") revealCumulative();
     window.scrollTo(0, 0);
   }
   $("tabs").addEventListener("click", (e) => {
@@ -182,7 +183,34 @@
     }).join("");
   }
 
+  // Payouts: running total of USDC paid to members. Counts up and draws in the first time you see it.
+  const cumChart = window.PaperChart.create($("cumChart"), $("cumTable"), {
+    fmt: (v) => usd(v), fromZero: true, animate: true, pulse: true,
+    note: (p) => (p[2] ? ` · +${usd(p[2])} that round` : ""),
+  });
+  let cum = null, cumShown = false;
+  async function loadCumulative() {
+    try { cum = await api("/api/payouts/chart" + DEMO_Q); } catch { return; }
+    $("paidChart").hidden = !(cum.total > 0);
+    if (!(cum.total > 0)) return;
+    $("cumSub").textContent = `across ${cum.rounds.toLocaleString("en-US")} rounds · ${usd(cum.total / cum.rounds)} a round on average`;
+    $("cumChart").hidden = cum.points.length < 2;
+    $("cumChart").setAttribute("aria-label", `${usd(cum.total)} paid to members in ${cum.rounds} rounds. Use arrow keys to read points.`);
+    if (document.getElementById("view-drops").classList.contains("on")) revealCumulative();
+  }
+  // Only animate once the Payouts tab is actually on screen, so people see it happen.
+  function revealCumulative() {
+    if (!cum || !(cum.total > 0)) return;
+    if (cumShown) { $("cumN").textContent = usd(cum.total); cumChart.set(cum.points); return; }
+    cumShown = true;
+    cumChart.set(cum.points);
+    const el = $("cumN"), end = cum.total, t0 = performance.now(), dur = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1400;
+    const step = (t) => { const k = dur ? Math.min(1, (t - t0) / dur) : 1; el.textContent = usd(end * (1 - (1 - k) ** 4)); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+
   function renderDrops() {
+    loadCumulative();
     $("dropList").innerHTML = S.drops.map((d) => `<a class="row"${d.tx ? ` data-tx="${esc(d.tx)}"` : ""}>
       <div class="body"><div class="t">#${d.n.toLocaleString("en-US")}</div><div class="d">${d.holders.toLocaleString("en-US")} members paid</div></div>
       <div class="end"><div class="a">${usd(d.usdc)}</div><div class="w">${ago(d.at)}</div></div></a>`).join("");
