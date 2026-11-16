@@ -206,13 +206,15 @@
     cumChart.set(cum.points);
     const el = $("cumN"), end = cum.total, t0 = performance.now(), dur = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1400;
     const step = (t) => { const k = dur ? Math.min(1, (t - t0) / dur) : 1; el.textContent = usd(end * (1 - (1 - k) ** 4)); if (k < 1) requestAnimationFrame(step); };
-    requestAnimationFrame(step);
+    if (document.hidden || !dur) el.textContent = usd(end); // a background tab pauses animation frames: show the real total
+    else requestAnimationFrame(step);
+    setTimeout(() => (el.textContent = usd(cum.total)), dur + 300); // and never leave it mid-count
   }
 
   function renderDrops() {
     loadCumulative();
     $("dropList").innerHTML = S.drops.map((d) => `<a class="row"${d.tx ? ` data-tx="${esc(d.tx)}"` : ""}>
-      <div class="body"><div class="t">#${d.n.toLocaleString("en-US")}</div><div class="d">${d.holders.toLocaleString("en-US")} members paid</div></div>
+      <div class="body"><div class="t">#${d.n.toLocaleString("en-US")}</div><div class="d">${d.holders.toLocaleString("en-US")} member${d.holders === 1 ? "" : "s"} paid</div></div>
       <div class="end"><div class="a">${usd(d.usdc)}</div><div class="w">${ago(d.at)}</div></div></a>`).join("");
   }
 
