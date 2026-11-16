@@ -108,7 +108,6 @@
     $("dropsN").textContent = S.totals.drops.toLocaleString("en-US");
     $("calc").hidden = !(S.avgDrop24 > 0 && S.eligibleSupply > 0) || !!W?.eligible;
     tick();
-    renderTicker();
     renderWall();
     renderMembers();
     renderDrops();
@@ -131,16 +130,6 @@
       $("clock").textContent = pot > 0 ? `Paying ${usd(pot)} to the cult` : "Nobody left this round";
       setTimeout(() => { celebrating = false; $("clock").classList.remove("paid"); $("eyebrow").textContent = "The cult gets paid in"; load(); }, 4000);
     }
-  }
-
-  function renderTicker() {
-    const list = S.wall.latest.slice(0, 12);
-    $("ticker").hidden = !list.length;
-    if (!list.length) return;
-    const item = (x) => `<span><span class="w">${xOf(x.wallet) ? esc(xOf(x.wallet).name) : esc(short(x.wallet))}</span> left · paid the cult <b>${usd(x.paidUsdc)}</b> · ${ago(x.at)}</span>`;
-    const html = list.map(item).join("");
-    $("track").innerHTML = html + html; // doubled for a seamless loop
-    $("track").style.animationDuration = Math.max(30, list.length * 7) + "s";
   }
 
   // A member with a linked X shows their X picture and name; everyone else gets initials and a short address.

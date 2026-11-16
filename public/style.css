@@ -47,13 +47,6 @@ nav.tabs button.on { color: var(--text); background: var(--surface); }
 .btn.soon::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; transform: translate(-50%, -2px); background: var(--hover); border: 1px solid var(--line); color: var(--text); font: 500 12px var(--sans); padding: 5px 9px; border-radius: 7px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; }
 .btn.soon:hover::after, .btn.soon:focus-visible::after, .btn.soon.tipping::after { opacity: 1; transform: translate(-50%, 0); }
 
-/* live ticker */
-.ticker { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; font-size: 13px; color: var(--muted); mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
-.ticker .track { display: inline-flex; gap: 40px; padding: 8px 0; animation: tick 60s linear infinite; }
-.ticker:hover .track { animation-play-state: paused; }
-.ticker b { font: 500 13px var(--mono); color: var(--accent-ink); }
-.ticker span.w { font-family: var(--mono); color: var(--text); }
-@keyframes tick { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
 main { max-width: 1080px; margin: 0 auto; padding: 0 20px 90px; }
 section.view { display: none; }
@@ -237,7 +230,6 @@ dialog#tradeDlg::backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: blu
   .facts b { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ticker .track { animation: none; }
   .row.fresh { animation: none; }
   * { transition: none !important; }
 }
