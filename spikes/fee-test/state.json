@@ -1,0 +1,31 @@
+{
+  "mint": "FyZ6Pr7C8wkc7XvUxF31uvrxYaX27VfkFTWJu581NuXw",
+  "txs": [
+    {
+      "label": "mint: 15% transfer fee, fee rate locked, supply minted, minting revoked",
+      "sig": "69UYimrjtFutWm5f8aXpbDnBhmyPUwgyYP1wBK4wHne5d8q73h1qF2GzxdpcsSXPafwywt2FqCV3whiM5wbXqHT"
+    },
+    {
+      "label": "pool: tokens only, no SOL, liquidity locked",
+      "sig": "6ptAjAE7UY4tmZM3R8fWJ8nGTwyPMPHsjwTBscGYqHjNNjtEF2WZ4gAK166j8EWcksP1Ed68gdGfgad8iNzURzR"
+    },
+    {
+      "label": "fund test trader 0.06 SOL",
+      "sig": "2vjCUCLTrUGmNgoLoTk3tecgqRWmHLA1krRy5Ze71PLFmuZMqvcEQU97fqtG3ma9P6SiPjeUw1pTGxut9gzufhuG"
+    },
+    {
+      "label": "buy",
+      "sig": "54rVcLSySBxjGBjHP3pzDzgeh4jc6KAAQpdLvMJcG3qSdJD36EQKAr4MRbUPW3V3sHKVUct8neSrYA6SXM3DErvS"
+    },
+    {
+      "label": "refund buyer's withheld 15%",
+      "sig": "Jsjsv5Ur7KME2fibtSWodfbh2dfSRnztkWgmsxYt3cPzxzYSKZwATYr8fN3qWqdS2ob5FkPd5cexQ7aqFaC97AW"
+    },
+    {
+      "label": "sell",
+      "sig": "3uKFuD6iwPVWEN3uzgj5LH7AXGG9w1JbB4iamahVNEhwaiY6bMMYbk8ATD2LA9nVgtzPKuPN7do1ni3kp3y8PjKj"
+    }
+  ],
+  "pool": "HZWYaGB44DucodnSV2WrezKa8zmAbBPQunfC3bVd4jQn",
+  "position": "6o25RAx7oBgnDRu37boz5SG7a44TxtRZEzGk7LrSXLcc"
+}

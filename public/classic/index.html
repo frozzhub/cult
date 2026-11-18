@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>CULT</title>
+  <meta name="description" content="Everyone's panicking. The cult is getting paid. Joining is free, leaving costs 10%, and every 10 minutes it's split between the members in USDC.">
+  <meta name="theme-color" content="#0d0e10">
+  <!-- Link previews (X, Telegram, Discord). The Worker makes og:image absolute for whichever domain serves it. -->
+  <meta property="og:title" content="$CULT: the cult gets paid">
+  <meta property="og:description" content="Joining is free. Leaving costs 10%, and every 10 minutes it's split between the members in USDC.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@thecultponzi">
+  <meta name="twitter:image" content="/og.png">
+  <link rel="icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="bar">
+    <a class="logo" href="/classic/" aria-label="CULT home">
+      <img class="mark" src="/mark.svg" alt="" width="26" height="26">
+      <span class="word">CULT</span> <span class="net" id="net" hidden>devnet</span>
+    </a>
+    <nav class="tabs" id="tabs">
+      <button data-tab="home" class="on">The cult</button>
+      <button data-tab="members">Members</button>
+      <button data-tab="wall">Left the cult</button>
+      <button data-tab="drops">Payouts</button>
+    </nav>
+    <div class="hbtns">
+      <a class="btn small ghost xlink" href="https://x.com/thecultponzi" target="_blank" rel="noopener" aria-label="CULT on X (@thecultponzi)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2zm-1.1 18h1.7L6.3 3.9H4.5L17.8 20z"/></svg><span>@thecultponzi</span></a>
+      <button class="btn small soon" id="launchBtn" type="button" aria-disabled="true" data-tip="Coming soon">Launch</button>
+      <button class="btn small" id="walletBtn">Connect</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- THE CULT -->
+  <section class="view on" id="view-home">
+    <div class="hero">
+      <div class="eyebrow" id="eyebrow">The cult gets paid in</div>
+      <div class="clock" id="clock">--:--</div>
+      <div class="hourbar" aria-hidden="true"><div id="hourFill"></div></div>
+      <div class="pot" id="pot" hidden><span class="n" id="potN">$0.00</span><span class="bump" id="potBump"></span><small>paid in this round by those who left</small></div>
+      <p class="line" id="line">Sellers pay a 10% fee, which is accumulated and airdropped every 10&nbsp;minutes to holders in&nbsp;<svg class="usdc" viewBox="0 0 32 32" role="img" aria-label="USDC"><circle cx="16" cy="16" r="16" fill="#2775CA"/><path fill="#fff" d="M20.1 18.4c0-2.1-1.3-2.9-3.8-3.2-1.8-.3-2.2-.7-2.2-1.6s.6-1.4 1.8-1.4c1.1 0 1.7.4 2 1.3.1.2.2.3.4.3h1c.2 0 .4-.2.4-.4v-.1c-.3-1.3-1.3-2.3-2.7-2.4V9.4c0-.2-.2-.4-.5-.4h-.9c-.2 0-.4.2-.4.5v1.4c-1.8.3-3 1.5-3 3 0 2 1.2 2.8 3.7 3.1 1.7.3 2.3.7 2.3 1.6s-.9 1.6-2 1.6c-1.6 0-2.1-.7-2.3-1.6 0-.2-.2-.3-.4-.3h-1c-.2 0-.4.2-.4.4v.1c.2 1.5 1.2 2.5 3.1 2.8v1.4c0 .2.2.4.5.4h.9c.2 0 .4-.2.4-.5v-1.4c1.8-.3 3-1.5 3-3.1z"/><path fill="#fff" d="M13 24.9c-4.7-1.7-7.1-6.9-5.4-11.5.9-2.5 2.9-4.5 5.4-5.4.2-.1.4-.3.4-.6v-.9c0-.2-.1-.4-.4-.5h-.1C7.4 7.8 4.1 14 5.9 19.7c1.1 3.4 3.7 6 7.1 7.1.2.1.5 0 .5-.3v-.9c0-.3-.2-.6-.5-.7zm6.1-19.8c-.2-.1-.5 0-.5.3v.9c0 .3.2.5.4.6 4.7 1.7 7.1 6.9 5.4 11.5-.9 2.5-2.9 4.5-5.4 5.4-.2.1-.4.3-.4.6v.9c0 .2.1.4.4.5h.1c5.7-1.8 8.8-7.9 7-13.6-1.1-3.5-3.8-6.1-7-7.1z"/></svg></p>
+
+      <div class="mine" id="mine" hidden>
+        <div class="cut"><span class="est" id="mEst"></span><span class="lbl">your cut this round</span></div>
+        <div class="facts">
+          <div><b id="mBal"></b><span>$CULT held</span></div>
+          <div><b id="mMult"></b><span>devotion boost</span></div>
+          <div><b id="mGot"></b><span>received</span></div>
+        </div>
+        <div class="streak"><div id="streakBar"></div></div>
+        <div class="streak-l"><span id="streakT"></span><span id="streakN"></span></div>
+      </div>
+
+      <div class="cta" id="cta">
+        <button class="btn accent" data-trade="buy">Join</button>
+        <button class="btn" data-trade="sell">Sell</button>
+      </div>
+    </div>
+
+    <section class="market" id="market" hidden aria-labelledby="priceTitle">
+      <div class="mhead">
+        <div>
+          <div class="mlabel" id="priceTitle">$CULT price</div>
+          <div class="price"><span class="n" id="priceN"></span><span class="chg" id="priceChg"></span></div>
+        </div>
+        <div class="seg" id="rangeSeg" role="group" aria-label="Chart range">
+          <button data-r="24h" class="on">24H</button><button data-r="7d">7D</button><button data-r="all">All</button>
+        </div>
+      </div>
+      <p class="curve" id="curve" hidden><span class="cbar" id="curveBar" aria-hidden="true"><span id="curveFill"></span></span><span id="curveT"></span></p>
+      <div class="chart" id="chart" tabindex="0" role="img" aria-describedby="chartTable">
+        <svg id="chartSvg" aria-hidden="true"></svg>
+        <div class="tip" id="tip" hidden><b id="tipV"></b><span id="tipT"></span></div>
+      </div>
+      <div class="sr-only"><table id="chartTable"><caption>$CULT price over the selected range</caption><thead><tr><th>Time</th><th>Price (USD)</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <div class="totals" id="totals" hidden>
+      <div id="tVol"><div class="n" id="volN"></div><div class="l">total volume</div></div>
+      <div id="tPaid"><div class="n accent" id="paidN"></div><div class="l">USDC paid to members</div></div>
+      <div id="tHolders"><div class="n" id="holdersN"></div><div class="l">members paid last round</div></div>
+      <div id="tDrops"><div class="n" id="dropsN"></div><div class="l">rounds paid</div></div>
+    </div>
+
+    <div class="how">
+      <div>
+        <h2>How it works</h2>
+        <ol class="steps">
+          <li><div>Join by buying $CULT. Joining is free: no tax on buys.</div></li>
+          <li><div>Leaving costs 10%: the exit tithe, split between the members who stay.</div></li>
+          <li><div id="howDrop">Every 10 minutes, the tithe is swapped to USDC and split between members.</div></li>
+          <li><div id="howHold">Hold $50 or more to be counted. Stay longer and your devotion earns up to 1.5× the cut.</div></li>
+        </ol>
+        <details class="fine"><summary>Rules</summary><ul id="rules"></ul></details>
+      </div>
+      <div class="calc" id="calc" hidden>
+        <label for="calcIn">If you held</label>
+        <div class="field"><input type="text" id="calcIn" inputmode="numeric" value="1,000,000"><span>$CULT</span></div>
+        <div class="out" id="calcOut"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MEMBERS -->
+  <section class="view" id="view-members">
+    <div class="narrow">
+      <h1>The faithful</h1>
+      <p class="lead">The members the cult has paid the most. Every dollar here came from someone who left.</p>
+      <div class="rows" id="memberList"></div>
+    </div>
+  </section>
+
+  <!-- PROFILE (#profile = yours, #u/<wallet> = anyone's) -->
+  <section class="view" id="view-profile">
+    <div class="narrow"><div class="pcard" id="pcard"></div></div>
+  </section>
+
+  <!-- LEFT THE CULT -->
+  <section class="view" id="view-wall">
+    <div class="narrow">
+      <h1>Left the cult</h1>
+      <p class="lead">Everyone who walked out, and the tithe they paid on the way. Every cent went to the members who stayed.</p>
+      <div class="seg" id="wallSeg"><button data-v="top" class="on">All time</button><button data-v="latest">Latest</button></div>
+      <div class="rows" id="wallList"></div>
+    </div>
+  </section>
+
+  <!-- PAYOUTS -->
+  <section class="view" id="view-drops">
+    <div class="narrow">
+      <h1>Payouts</h1>
+      <p class="lead" id="dropsLead">One every 10 minutes. Every payment is an on-chain transaction you can check.</p>
+      <div class="rows" id="dropList"></div>
+    </div>
+  </section>
+</main>
+
+<div class="dock" id="dock">
+  <button class="btn accent" data-trade="buy">Join</button>
+  <button class="btn" data-trade="sell">Sell</button>
+</div>
+
+<dialog id="tradeDlg">
+  <div class="dlg-head">
+    <div class="seg" id="sideSeg"><button data-v="buy" class="on">Buy</button><button data-v="sell">Sell</button></div>
+    <button class="x" id="tradeX" aria-label="Close">✕</button>
+  </div>
+  <div class="dlg-label"><span id="amtL">You pay</span></div>
+  <div class="field big"><input type="text" id="amtIn" inputmode="decimal" placeholder="0" autocomplete="off"><span id="amtUnit">SOL</span></div>
+  <div class="chips" id="chips"></div>
+  <div class="quote" id="quoteOut" aria-live="polite"></div>
+  <div class="warn" id="streakWarn" hidden></div>
+  <button class="btn accent wide" id="tradeGo" disabled>Buy</button>
+  <p class="msg" id="tradeMsg" role="status" hidden></p>
+</dialog>
+
+<div id="toast" hidden></div>
+<script src="/chart.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

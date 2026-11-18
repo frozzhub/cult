@@ -1,40 +1,52 @@
 // All settings in one place. Vars live in wrangler.jsonc, secrets in `wrangler secret put`.
-import { PublicKey } from "@solana/web3.js";
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const ADDR = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 export function config(env) {
   const list = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
-  const cfg = {
+  const num = (v, d, lo = 0, hi = Infinity) => { const n = Number(v === undefined || v === "" ? d : v); return Number.isFinite(n) && n >= lo && n <= hi ? n : d; };
+  const dryRun = env.DRY_RUN !== "0"; // on unless explicitly turned off
+  return {
     cluster: env.CLUSTER === "devnet" ? "devnet" : "mainnet",
-    clientRpc: env.CLIENT_RPC || "",       // set: the browser reads the pool and sends trades through this RPC itself
     ticker: env.TICKER || "CULT",
     mint: env.MINT || "",
-    sellTaxBps: Number(env.SELL_TAX_BPS || 1500),
+    // The tax the mint withholds on every transfer (the curve caps it at 10%). Shown by the site; the mint is the truth.
+    sellTaxBps: num(env.SELL_TAX_BPS, 1000, 0, 1000),
+    dbcConfig: env.DBC_CONFIG || "",       // optional: the Meteora DBC config account. Unset, the pool is found on chain from MINT
+    creator: env.CREATOR || "",            // optional: the wallet that created the pool. Set, the tick refuses a pool made by anyone else (the config is public)
     dropMinutes: Number(env.DROP_MINUTES || 60),
     minHoldUsd: Number(env.MIN_HOLD_USD || 50),
     streaks: list(env.STREAKS || "7:1.25,30:1.5").map((s) => { const [d, x] = s.split(":"); return { days: Number(d), mult: Number(x) }; }).sort((a, b) => a.days - b.days),
     xHandle: env.X_HANDLE || "",
     demo: env.DEMO === "1",
-    // Indexer
-    poolProgram: env.POOL_PROGRAM || "",   // programs/paper-pool
-    hookProgram: env.HOOK_PROGRAM || "",   // programs/paper-hook
-    pool: env.POOL_ACCOUNT || "",          // the pool PDA (owner of its token vault): sold tokens land here
-    payout: env.PAYOUT_WALLET || "",       // receives the 15% in SOL, swaps it and pays holders
+    // Payout wallet = the DBC fee claimer = the mint's withdraw-withheld authority: its key signs refunds, sweeps and payouts.
+    payout: env.PAYOUT_WALLET || "",
     exclude: list(env.EXCLUDE),            // team wallets etc. that never get airdrops
-    dryRun: env.DRY_RUN !== "0",           // on unless explicitly turned off
+    dryRun,
+    // Refunds can go live before payouts: REFUNDS_DRY_RUN "0" overrides DRY_RUN for refunds only. Unset follows DRY_RUN.
+    refundsDryRun: env.REFUNDS_DRY_RUN === "0" ? false : env.REFUNDS_DRY_RUN === "1" ? true : dryRun,
+    refundDeny: list(env.REFUND_DENY),     // owners that never get a refund (their withheld tokens are swept instead)
+    refundMinUsd: num(env.REFUND_MIN_USD, 0.01),   // less withheld than this (in USD at the current price) is swept, not refunded
+    refundMinTokens: BigInt(Math.floor(num(env.REFUND_MIN_TOKENS, 100_000))), // raw; the same floor while there is no price
+    feeBatch: num(env.FEE_BATCH, 18, 1, 23), // accounts per refund or sweep transaction
+    feeCooldownMs: num(env.FEE_COOLDOWN_MS, 10_000), // an account is acted on at most this often
+    refundTxPerDay: num(env.REFUND_TX_PER_DAY, 50_000), // runaway brake on refund transactions per UTC day (sweeps are never braked)
+    feeScanMinutes: num(env.FEE_SCAN_MINUTES, 30, 1),
+    feePriority: num(env.FEE_PRIORITY_MICROLAMPORTS, 100_000), // compute-unit price on refunds, and the least a sweep pays
+    feePriorityMax: num(env.FEE_PRIORITY_MAX_MICROLAMPORTS, 10_000_000), // the most a vault sweep pays per compute unit when the vault is hot
+    atomicRefund: env.ATOMIC_REFUND === "1", // site buys carry the refund in the same transaction (see docs/API.md)
+    maxSwapImpactBps: num(env.MAX_SWAP_IMPACT_BPS, 300, 1, 5000), // price impact (without the tax) one swap may cause
+    minSwapUsd: num(env.MIN_SWAP_USD, 1),
+    claimMinutes: num(env.CLAIM_MINUTES, 60, 1),    // partner trading fees (SOL) are claimed this often
+    autoMigrate: env.AUTO_MIGRATE !== "0",
     solReserve: Number(env.SOL_RESERVE_LAMPORTS || 50_000_000),
+    migrateMinLamports: Number(env.MIGRATE_MIN_LAMPORTS || 150_000_000), // payout SOL needed before the migration is sent
     minPayoutMicro: Math.round(Number(env.MIN_PAYOUT_USDC || 0.01) * 1e6),
     batchSize: Number(env.BATCH_SIZE || 8),
     slippageBps: Number(env.SLIPPAGE_BPS || 100),
-    jup: (env.JUP_API || "https://lite-api.jup.ag").replace(/\/$/, ""),
+    jup: (env.JUP_API || "https://api.jup.ag").replace(/\/$/, ""),
   };
-  // The pool PDA follows from the pool program and the mint, so POOL_ACCOUNT is optional.
-  if (!cfg.pool && cfg.poolProgram && cfg.mint) {
-    try { cfg.pool = PublicKey.findProgramAddressSync([new TextEncoder().encode("pool"), new PublicKey(cfg.mint).toBytes()], new PublicKey(cfg.poolProgram))[0].toBase58(); } catch {}
-  }
-  return cfg;
 }
 
 export const dropMs = (cfg) => cfg.dropMinutes * 60_000;

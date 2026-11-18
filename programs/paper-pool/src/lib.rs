@@ -1,15 +1,23 @@
-//! $PAPER pool: a SOL / $PAPER constant-product pool with no fee on buys and a fee on sells.
+//! $CULT pool: a SOL / $CULT constant-product pool with a fee on sells and an optional fee on buys.
 //!
-//! - buy:  SOL in, $PAPER out. No fee.
-//! - sell: $PAPER in, SOL out. `fee_bps` (15%) of the SOL goes straight to the payout wallet, which the
-//!         Worker swaps to USDC and airdrops to holders every hour.
+//! - buy:  SOL in, $CULT out. `buy_fee_bps` (0 at launch, max 5%) of the SOL goes to the payout wallet; the
+//!         rest is what the curve prices.
+//! - sell: $CULT in, SOL out. `fee_bps` (15%) of the SOL goes straight to the payout wallet, which the
+//!         Worker swaps to USDC and airdrops to holders every 10 minutes.
 //!
-//! Liquidity is added once at `initialize` and locked forever (no LP tokens, no withdraw, no admin).
-//! The fee and payout wallet are fixed at creation and can't be changed later.
+//! Virtual seed: the pool starts as if it held `virtual_sol` lamports, but no SOL is put in (the creator
+//! pays only the accounts' rent). `sol_reserve` is the curve's SOL including that virtual part, so real SOL
+//! in the pool is always `sol_reserve - virtual_sol` (tests check it after every trade). A holder can always
+//! sell back what they bought: k = sol_reserve * token_reserve never shrinks, so selling every outstanding
+//! token returns at most the SOL that came in. `sell` still refuses if the real SOL were ever short.
+//!
+//! The curve's tokens are locked at `initialize` (no LP tokens, no withdraw, no admin). The fees and the
+//! payout wallet are fixed at creation and can't be changed later.
 //!
 //! The coin is a Token-2022 mint with a transfer hook (programs/paper-hook) that blocks transfers into
 //! any other pool, so every sell has to come through here and pay the fee.
 //!
+//! Ported from this repo's first paper-pool (devnet, 13 Nov); the virtual seed, buy fee and sell guard are new.
 //! Build: `npm run build:programs`. Tests: programs-tests/ (LiteSVM, `npm run test:programs`).
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -17,23 +25,27 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::spl_token_2022;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
-declare_id!("J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu");
+declare_id!("5xsG4XWGVdazEZSDkjFWu25gCyeCnTuxuPxbmJ1xmA4D");
 
 pub const MAX_FEE_BPS: u16 = 2_000;
+pub const MAX_BUY_FEE_BPS: u16 = 500;
 
 #[program]
 pub mod paper_pool {
     use super::*;
 
-    /// Create the pool and seed it with `token_amount` $PAPER and `sol_amount` lamports from the creator.
+    /// Create the pool with `token_amount` $CULT from the creator and a virtual SOL side of `virtual_sol`
+    /// lamports. No SOL moves in (only the pool account's rent, paid by the creator).
     pub fn initialize<'info>(
         ctx: Context<'_, '_, 'info, 'info, Initialize<'info>>,
         fee_bps: u16,
+        buy_fee_bps: u16,
         token_amount: u64,
-        sol_amount: u64,
+        virtual_sol: u64,
     ) -> Result<()> {
         require!(fee_bps <= MAX_FEE_BPS, PoolError::FeeTooHigh);
-        require!(token_amount > 0 && sol_amount > 0, PoolError::ZeroAmount);
+        require!(buy_fee_bps <= MAX_BUY_FEE_BPS, PoolError::BuyFeeTooHigh);
+        require!(token_amount > 0 && virtual_sol > 0, PoolError::ZeroAmount);
 
         {
             let pool = &mut ctx.accounts.pool;
@@ -41,8 +53,10 @@ pub mod paper_pool {
             pool.vault = ctx.accounts.vault.key();
             pool.payout = ctx.accounts.payout.key();
             pool.fee_bps = fee_bps;
-            pool.sol_reserve = sol_amount;
+            pool.sol_reserve = virtual_sol;
             pool.bump = ctx.bumps.pool;
+            pool.virtual_sol = virtual_sol;
+            pool.buy_fee_bps = buy_fee_bps;
         }
 
         move_tokens(
@@ -55,33 +69,33 @@ pub mod paper_pool {
             token_amount,
             &[],
         )?;
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer { from: ctx.accounts.creator.to_account_info(), to: ctx.accounts.pool.to_account_info() },
-            ),
-            sol_amount,
-        )?;
-        emit!(PoolCreated { mint: ctx.accounts.mint.key(), fee_bps, token_amount, sol_amount });
+        emit!(PoolCreated { mint: ctx.accounts.mint.key(), fee_bps, buy_fee_bps, token_amount, virtual_sol });
         Ok(())
     }
 
-    /// Spend `sol_in` lamports on $PAPER. Fails if fewer than `min_out` tokens would come back.
+    /// Spend `sol_in` lamports on $CULT. `buy_fee_bps` of it goes to the payout wallet, the rest is priced
+    /// by the curve and stays in the pool. Fails if fewer than `min_out` tokens would come back.
     pub fn buy<'info>(ctx: Context<'_, '_, 'info, 'info, Trade<'info>>, sol_in: u64, min_out: u64) -> Result<()> {
         require!(sol_in > 0, PoolError::ZeroAmount);
         let token_reserve = ctx.accounts.vault.amount;
         let sol_reserve = ctx.accounts.pool.sol_reserve;
-        let out = quote(sol_in, sol_reserve, token_reserve)?;
+        let fee = (sol_in as u128 * ctx.accounts.pool.buy_fee_bps as u128 / 10_000) as u64;
+        let net_in = sol_in - fee;
+        let out = quote(net_in, sol_reserve, token_reserve)?;
         require!(out > 0 && out >= min_out, PoolError::Slippage);
 
+        let system = ctx.accounts.system_program.to_account_info();
+        if fee > 0 {
+            system_program::transfer(
+                CpiContext::new(system.clone(), system_program::Transfer { from: ctx.accounts.user.to_account_info(), to: ctx.accounts.payout.to_account_info() }),
+                fee,
+            )?;
+        }
         system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer { from: ctx.accounts.user.to_account_info(), to: ctx.accounts.pool.to_account_info() },
-            ),
-            sol_in,
+            CpiContext::new(system, system_program::Transfer { from: ctx.accounts.user.to_account_info(), to: ctx.accounts.pool.to_account_info() }),
+            net_in,
         )?;
-        ctx.accounts.pool.sol_reserve = sol_reserve.checked_add(sol_in).ok_or(PoolError::Overflow)?;
+        ctx.accounts.pool.sol_reserve = sol_reserve.checked_add(net_in).ok_or(PoolError::Overflow)?;
 
         let mint_key = ctx.accounts.mint.key();
         let seeds: &[&[u8]] = &[b"pool", mint_key.as_ref(), &[ctx.accounts.pool.bump]];
@@ -95,11 +109,11 @@ pub mod paper_pool {
             out,
             &[seeds],
         )?;
-        emit!(Traded { user: ctx.accounts.user.key(), buy: true, tokens: out, sol: sol_in, fee: 0 });
+        emit!(Traded { user: ctx.accounts.user.key(), buy: true, tokens: out, sol: sol_in, fee });
         Ok(())
     }
 
-    /// Sell `tokens_in` $PAPER. The fee is taken from the SOL out and sent to the payout wallet.
+    /// Sell `tokens_in` $CULT. The fee is taken from the SOL out and sent to the payout wallet.
     /// Fails if the seller would get less than `min_out` lamports after the fee.
     pub fn sell<'info>(ctx: Context<'_, '_, 'info, 'info, Trade<'info>>, tokens_in: u64, min_out: u64) -> Result<()> {
         require!(tokens_in > 0, PoolError::ZeroAmount);
@@ -125,9 +139,14 @@ pub mod paper_pool {
         let net = gross - fee;
         require!(net > 0 && net >= min_out, PoolError::Slippage);
 
+        // Real SOL the pool holds beyond its rent. Never trips in honest use (see the header and tests); it
+        // is here so a broken invariant refuses a sell instead of eating the pool's rent.
+        let pool_info = ctx.accounts.pool.to_account_info();
+        let real = pool_info.lamports().saturating_sub(Rent::get()?.minimum_balance(pool_info.data_len()));
+        require!(real >= gross, PoolError::PoolShort);
+
         ctx.accounts.pool.sol_reserve = sol_reserve.checked_sub(gross).ok_or(PoolError::Overflow)?;
         // The pool account is owned by this program, so it can pay out lamports directly.
-        let pool_info = ctx.accounts.pool.to_account_info();
         **pool_info.try_borrow_mut_lamports()? -= gross;
         **ctx.accounts.payout.to_account_info().try_borrow_mut_lamports()? += fee;
         **ctx.accounts.user.to_account_info().try_borrow_mut_lamports()? += net;
@@ -180,9 +199,12 @@ pub struct Pool {
     pub vault: Pubkey,
     pub payout: Pubkey,
     pub fee_bps: u16,
-    /// Lamports in the pool that belong to the curve (the account's rent is kept separately).
+    /// The curve's SOL: real lamports plus `virtual_sol` (the account's rent is kept separately).
     pub sol_reserve: u64,
     pub bump: u8,
+    // Appended after the first layout so offsets 8..115 stay put: virtual_sol @115, buy_fee_bps @123.
+    pub virtual_sol: u64,
+    pub buy_fee_bps: u16,
 }
 
 #[derive(Accounts)]
@@ -228,10 +250,12 @@ pub struct Trade<'info> {
 pub struct PoolCreated {
     pub mint: Pubkey,
     pub fee_bps: u16,
+    pub buy_fee_bps: u16,
     pub token_amount: u64,
-    pub sol_amount: u64,
+    pub virtual_sol: u64,
 }
 
+/// buy: `sol` is what the user paid (fee included); sell: `sol` is what the user received (fee excluded).
 #[event]
 pub struct Traded {
     pub user: Pubkey,
@@ -253,4 +277,8 @@ pub enum PoolError {
     EmptyPool,
     #[msg("Math overflow")]
     Overflow,
+    #[msg("Buy fee can't be more than 5%")]
+    BuyFeeTooHigh,
+    #[msg("The pool doesn't hold enough SOL for this sell")]
+    PoolShort,
 }

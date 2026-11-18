@@ -3,12 +3,14 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
-    "description": "$PAPER: 0% buy, 15% sell tax, all of it airdropped to holders as USDC. Cloudflare Worker site + API.",
+    "description": "$CULT: 0% buy, 10% sell tax on Meteora's bonding curve, all of it airdropped to holders as USDC. Cloudflare Worker site + API.",
     "scripts": {
         "dev": "wrangler dev",
         "deploy": "wrangler deploy",
+        "check": "node test/check.mjs",
+        "build": "wrangler deploy --dry-run --outdir .wrangler/build",
         "test": "node --test \"test/*.test.js\"",
-        "db:local": "wrangler d1 migrations apply paper-hands --local",
+        "db:local": "wrangler d1 migrations apply DB --local",
         "build:programs": "cargo build-sbf --manifest-path programs/paper-hook/Cargo.toml && cargo build-sbf --manifest-path programs/paper-pool/Cargo.toml",
         "test:programs": "cd programs-tests && cargo +stable-x86_64-pc-windows-msvc test",
         "test:devnet": "node --test test/devnet.live.mjs"
@@ -17,9 +19,12 @@
         "wrangler": "^4.0.0"
     },
     "dependencies": {
+        "@meteora-ag/cp-amm-sdk": "^1.5.1",
+        "@meteora-ag/dynamic-bonding-curve-sdk": "^2.0.0",
         "@noble/curves": "^2.4.0",
         "@solana/spl-token": "^0.4.15",
         "@solana/spl-token-metadata": "^0.1.6",
-        "@solana/web3.js": "^1.99.0"
+        "@solana/web3.js": "^1.99.0",
+        "bn.js": "^5.2.5"
     }
 }

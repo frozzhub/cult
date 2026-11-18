@@ -13,9 +13,10 @@
   const hue = (w) => [...w].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
-    .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw new Error(j.error || "Something went wrong. Try again."); return j; });
+    .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw Object.assign(new Error(j.error || "Something went wrong. Try again."), { status: r.status }); return j; });
 
   function toast(text) {
+    if ($("tradeDlg").open) return say(text); // a toast would sit behind the open dialog
     const el = $("toast");
     el.textContent = text; el.hidden = false;
     clearTimeout(toast.t); toast.t = setTimeout(() => (el.hidden = true), 4200);
@@ -64,7 +65,7 @@
 
   /* ---------- render ---------- */
   function render() {
-    const live = S.live, tax = S.sellTaxBps / 100;
+    const live = S.live, tax = S.sellTaxBps / 100, T = S.ticker;
     const every = S.dropMinutes === 60 ? "hour" : S.dropMinutes + " minutes";
     $("howDrop").textContent = `Every ${every}, the pot is swapped to USDC and split by holdings.`;
     $("dropsLead").textContent = `One every ${every}. Every payment is an on-chain transaction you can check.`;
@@ -75,8 +76,9 @@
     $("line").innerHTML = `Sellers pay a ${tax}% fee, which is accumulated and airdropped every ${S.dropMinutes === 60 ? "hour" : S.dropMinutes + "&nbsp;minutes"} to holders in&nbsp;${usdcIcon}` + (live ? "" : " Opening soon.");
     $("howHold").textContent = `Hold $${S.minHoldUsd} or more to be counted. Stay longer and your devotion earns up to ${Math.max(...S.streaks.map((s) => s.mult))}× the cut.`;
     $("rules").innerHTML = [
-      `Joining (buying) has no tax. Leaving (selling) pays ${tax}% of the SOL you receive: the exit tithe, straight to the payout wallet.`,
-      `Every ${S.dropMinutes} minutes, members holding at least $${S.minHoldUsd} of $${S.ticker} are counted and paid in USDC.`,
+      `Joining (buying) is free, and so is sending $${T} to another wallet. Leaving (selling) pays ${tax}% of the $${T} you sell: the exit tithe.`,
+      `$${T} holds back ${tax}% of every transfer. When it lands in a wallet (a buy or a send), the cult sends it straight back within seconds. When it lands in a pool (a sale), it's kept as the tithe.`,
+      `Every ${S.dropMinutes} minutes the tithe is sold for USDC, and members holding at least $${S.minHoldUsd} of $${T} are counted and paid.`,
       `Your cut is your balance times your devotion boost, out of every member counted.`,
       `Devotion (days without selling): ${S.streaks.map((s) => `${s.days} days ${s.mult}×`).join(", ")}. Any sell resets it to 1×.`,
       `The pool, team wallets and the payout wallet are never paid. Liquidity is locked and the tithe can never change.`,
@@ -102,6 +104,7 @@
     $("tPaid").hidden = !(S.totals.paidUsdc > 0);
     $("tDrops").hidden = !(S.totals.drops > 0);
     renderPrice();
+    renderCurve();
     $("paidN").textContent = usdRound(S.totals.paidUsdc);
     $("tHolders").hidden = !(S.totals.holders > 0);
     $("holdersN").textContent = S.totals.holders.toLocaleString("en-US");
@@ -197,6 +200,19 @@
     if (!(S.price > 0)) return;
     $("priceN").innerHTML = window.PaperChart.fmtPrice(S.price).html;
     if (Date.now() - chartAt > 60_000) loadChart();
+  }
+  // The bonding curve, from the cron's last look (state.pool). Nothing when that's unknown or stale.
+  const sol1 = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 1 });
+  function renderCurve() {
+    const c = S.pool, st = c?.stage;
+    $("curve").hidden = !["curve", "graduating", "graduated"].includes(st);
+    if ($("curve").hidden) return;
+    $("curveBar").hidden = st !== "curve";
+    $("curveFill").style.width = Math.min(100, (c.progressBps || 0) / 100) + "%";
+    $("curveT").innerHTML = st === "curve"
+      ? `<span class="n">${sol1(Math.floor(c.raisedSol * 10) / 10)}</span> of <span class="n">${sol1(c.thresholdSol)}</span> SOL raised on the bonding curve. When it's full, $${esc(S.ticker)} graduates to a Meteora pool.`
+      : st === "graduating" ? `The bonding curve is full. $${esc(S.ticker)} is moving to its Meteora pool now.`
+      : `$${esc(S.ticker)} has graduated from the bonding curve and trades on its Meteora pool, with the liquidity locked.`;
   }
   async function loadChart() {
     chartAt = Date.now();
@@ -315,45 +331,53 @@
   window.addEventListener("wallet-standard:register-wallet", (e) => { try { e.detail(registry); } catch {} });
   try { window.dispatchEvent(new CustomEvent("wallet-standard:app-ready", { detail: registry })); } catch {}
 
-  async function signTx(b64) {
+  // The wallet signs the Worker's transaction and sends it itself: no relay and no RPC of ours. Returns the signature.
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const b58 = (u8) => { let n = 0n, s = ""; for (const b of u8) n = n * 256n + BigInt(b); for (; n > 0n; n /= 58n) s = B58[Number(n % 58n)] + s; for (const b of u8) { if (b) break; s = "1" + s; } return s; };
+  async function sendTx(b64) {
     const chain = S.cluster === "devnet" ? "solana:devnet" : "solana:mainnet";
-    for (const w of standardWallets.filter((w) => w.features?.["solana:signTransaction"])) {
+    for (const w of standardWallets.filter((w) => w.features?.["solana:signAndSendTransaction"])) {
       let account = w.accounts.find((a) => a.address === wallet);
       if (!account && w.features["standard:connect"]) {
         const r = await w.features["standard:connect"].connect().catch(() => null);
         account = (r?.accounts || w.accounts).find((a) => a.address === wallet);
       }
       if (!account) continue;
-      const [out] = await w.features["solana:signTransaction"].signTransaction({ account, chain, transaction: fromB64(b64) });
-      return toB64(out.signedTransaction);
+      const [out] = await w.features["solana:signAndSendTransaction"].signAndSendTransaction({ account, chain, transaction: fromB64(b64) });
+      return b58(out.signature);
     }
+    if (standardWallets.some((w) => w.accounts.some((a) => a.address === wallet))) throw new Error("This wallet can't send a trade from a website. Use Phantom, Solflare or Backpack.");
     throw new Error("Open the wallet you connected (" + short(wallet) + ") and try again.");
   }
 
-  // With clientRpc set (devnet), the page reads the chain and sends trades itself; the Worker only builds them.
-  const rpc = async (method, params) => {
-    const r = await fetch(S.clientRpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-    const j = await r.json().catch(() => ({}));
-    if (j.error || !r.ok) throw new Error(j.error?.message || "The network is busy. Try again.");
-    return j.result;
-  };
-  const u64 = (b, o) => new DataView(b.buffer, b.byteOffset).getBigUint64(o, true);
-  async function readPool() {
-    if (S.demo) return { solReserve: 1_200_000_000_000n, tokenReserve: 600_000_000_000_000n, feeBps: 1500, decimals: 6 };
-    if (!S.clientRpc) { const p = await api("/api/pool"); return { solReserve: BigInt(p.solReserve), tokenReserve: BigInt(p.tokenReserve), feeBps: p.feeBps, decimals: p.decimals }; }
-    const r = await rpc("getMultipleAccounts", [[S.accounts.pool, S.accounts.vault, S.mint], { encoding: "base64" }]);
-    const [p, v, m] = r.value.map((a) => fromB64(a.data[0]));
-    return { solReserve: u64(p, 106), tokenReserve: u64(v, 64), feeBps: new DataView(p.buffer).getUint16(104, true), decimals: m[44] };
-  }
-
-  let side = "buy", pool = null;
+  // Prices come from the Worker as the amount changes (GET /api/quote). The page does no price maths of its own.
+  let side = "buy", quote = null, qErr = "", qBusy = false, qSeq = 0, qT = 0, mode = null, busy = false;
   const units = (n, d) => BigInt(Math.floor(n * 10 ** Math.min(d, 9))) * 10n ** BigInt(Math.max(0, d - 9));
-  async function openTrade(s) {
+  const coins = (raw) => Number(raw) / 10 ** (S.decimals ?? 6); // raw coin -> $CULT
+  const amtNow = () => Number($("amtIn").value.replace(/,/g, ""));
+  function requote() {
+    clearTimeout(qT); qSeq++; qErr = ""; mode = null;
+    disarm();
+    qBusy = amtNow() > 0;
+    if (!qBusy) quote = null; // otherwise the last quote stays, dimmed, until the new one lands
+    renderQuote();
+    if (qBusy) qT = setTimeout(fetchQuote, 350, qSeq);
+  }
+  async function fetchQuote(seq) {
+    const amount = (side === "buy" ? units(amtNow(), 9) : units(amtNow(), S.decimals ?? 6)).toString();
+    let q = null, err = "", again = false;
+    try { q = await api(`/api/quote?side=${side}&amount=${amount}&slippageBps=100`); }
+    catch (e) { err = e.message; again = e.status >= 429 && S.trade; } // busy for a moment, not a bad amount: ask again shortly
+    if (seq !== qSeq) return; // the amount changed while this was out
+    quote = q; qErr = err; qBusy = false;
+    renderQuote();
+    if (again) qT = setTimeout(fetchQuote, 5000, seq);
+  }
+  function openTrade(s) {
+    say("");
     setSide(s);
     $("tradeDlg").showModal();
     $("amtIn").focus();
-    try { pool = await readPool(); } catch { pool = null; toast("Couldn't read the pool. Try again in a moment."); }
-    renderQuote();
   }
   document.querySelectorAll("[data-trade]").forEach((b) => b.addEventListener("click", () => openTrade(b.dataset.trade)));
   function setSide(s) {
@@ -361,10 +385,9 @@
     $("sideSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === s));
     $("amtL").textContent = s === "buy" ? "You pay" : "You sell";
     $("amtUnit").textContent = s === "buy" ? "SOL" : "$" + S.ticker;
-    $("tradeGo").textContent = s === "buy" ? "Buy" : "Sell";
     renderChips();
     $("amtIn").value = "";
-    renderQuote();
+    requote();
   }
   // Quick amounts: SOL sizes for buys, a share of your bag for sells.
   function renderChips() {
@@ -373,87 +396,129 @@
       : bal ? [["25%", bal / 4], ["50%", bal / 2], ["Max", bal]] : [];
     $("chips").innerHTML = opts.map(([l, v]) => `<button type="button" data-v="${v}">${l}</button>`).join("");
   }
-  $("chips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; const v = Number(b.dataset.v); $("amtIn").value = side === "buy" ? String(v) : String(Math.floor(v)); renderQuote(); });
+  $("chips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; const v = Number(b.dataset.v); $("amtIn").value = side === "buy" ? String(v) : String(Math.floor(v)); say(""); requote(); });
   const impact = (p) => (p < 0.5 ? "" : `<div class="impact${p >= 10 ? " high" : ""}">Price impact ${p.toFixed(p < 10 ? 1 : 0)}%</div>`);
   function renderQuote() {
-    const q = $("quoteOut"), amt = Number($("amtIn").value.replace(/,/g, ""));
-    $("tradeGo").disabled = !(amt > 0 && pool);
-    // Selling costs 15% and resets the streak: say so before they do it, every time.
-    disarm();
-    const warn = $("streakWarn"), tax = (pool?.feeBps ?? S.sellTaxBps) / 100;
+    const q = $("quoteOut"), warn = $("streakWarn"), tax = S.sellTaxBps / 100, T = esc(S.ticker);
+    $("tradeGo").disabled = busy || qBusy || !quote;
+    q.classList.toggle("stale", qBusy);
+    warn.classList.toggle("stale", qBusy);
+    // Selling costs the tithe and resets the streak: say so before they do it, every time, with this sale's tax.
     warn.hidden = side !== "sell";
     if (!warn.hidden) {
-      const sol = pool ? Number(pool.solReserve) / 1e9 : 0, tok = pool ? Number(pool.tokenReserve) / 10 ** pool.decimals : 0;
-      const fee = amt > 0 && pool ? ((amt * sol) / (tok + amt)) * (tax / 100) : 0;
+      const cut = quote ? `<span class="mono">${compact(coins(quote.tax.amount))} $${T}</span>${quote.taxUsd > 0 ? ` (about ${tiny(quote.taxUsd)})` : ""} of this sale` : "It";
       const streak = W?.streakDays > 0 ? ` It also resets your ${W.streakDays} days of devotion${W.multiplier > 1 ? ` and your ${W.multiplier}× boost` : ""}.` : "";
-      warn.innerHTML = `<b>Leaving costs ${tax}%.</b> ${fee > 0 ? `${fee.toFixed(4)} SOL of this sale` : "It"} goes to the members who stay. Stay, and you're the one getting paid.${esc(streak)}`;
+      warn.innerHTML = `<b>Leaving costs ${tax}%.</b> ${cut} goes to the members who stay. Stay, and you're the one getting paid.${esc(streak)}`;
     }
-    if (!(amt > 0) || !pool) { q.innerHTML = ""; return; }
-    const sol = Number(pool.solReserve) / 1e9, tok = Number(pool.tokenReserve) / 10 ** pool.decimals;
-    if (side === "buy") {
-      const imp = (amt / (sol + amt)) * 100;
-      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">Joining is free: no tax on buys.</div>${impact(imp)}`;
+    if (qErr) { q.innerHTML = `<div>${esc(qErr)}</div>`; return; }
+    if (!quote) { q.innerHTML = ""; return; }
+    const imp = impact(quote.priceImpactBps / 100);
+    if (quote.side === "buy") {
+      // mode is how the built buy gets its hold-back back: "after" (seconds later), "atomic" (in the same transaction),
+      // or "none" (an account with a delegate or close authority pays it, like a pool).
+      const note = mode === "after" ? `About ${100 - tax}% arrives first. The last ${tax}% lands a few seconds later.`
+        : mode === "none" ? `Your $${T} account has a delegate or close authority, so it pays the ${tax}% like a pool does and gets nothing back.`
+        : `Joining is free: the ${tax}% the coin holds back comes back to you.`;
+      q.innerHTML = `<div class="n">~${compact(coins(mode === "none" ? quote.outAmount : quote.outAfterRefund))} $${T}</div><div class="muted">${note}</div>${imp}`;
     } else {
-      const gross = (amt * sol) / (tok + amt), fee = (gross * pool.feeBps) / 10_000;
-      const imp = (amt / (tok + amt)) * 100;
-      q.innerHTML = `<div class="n">~${(gross - fee).toFixed(4)} SOL</div><div class="muted"><span class="accent mono">${fee.toFixed(4)} SOL</span> of it goes to the cult.</div>${impact(imp)}`;
+      q.innerHTML = `<div class="n">~${(Number(quote.outAmount) / 1e9).toFixed(4)} SOL</div><div class="muted"><span class="accent mono">${compact(coins(quote.tax.amount))} $${T}</span> of what you sell goes to the cult.</div>${imp}`;
     }
   }
-  $("sideSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setSide(b.dataset.v); });
-  $("amtIn").addEventListener("input", renderQuote);
+  $("sideSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { say(""); setSide(b.dataset.v); } });
+  $("amtIn").addEventListener("input", () => { say(""); requote(); });
   $("tradeX").addEventListener("click", () => $("tradeDlg").close());
   $("tradeDlg").addEventListener("click", (e) => { if (e.target === $("tradeDlg")) $("tradeDlg").close(); });
+  $("tradeDlg").addEventListener("close", () => { clearTimeout(qT); qSeq++; }); // no quotes for a closed dialog
 
-  // Selling takes two presses: the first arms it ("Sell anyway, pay 15%"), the second sells.
+  // Trade messages show in the dialog, under its button. With the dialog closed they fall back to a toast.
+  let msgN = 0;
+  function say(text, note = "") {
+    msgN++;
+    if (text && !$("tradeDlg").open) { toast(text); return msgN; }
+    const m = $("tradeMsg");
+    m.textContent = text || "";
+    if (note) m.insertAdjacentHTML("beforeend", `<span class="msg-note">${esc(note)}</span>`);
+    m.hidden = !text;
+    return msgN;
+  }
+
+  // Selling takes two presses: the first arms it ("Leave anyway, pay 10%"), the second sells.
   let armed = false;
+  const goLabel = () => (side === "buy" ? "Buy" : armed ? `Leave anyway, pay ${S.sellTaxBps / 100}%` : "Sell");
   function disarm() {
     armed = false;
     $("streakWarn").classList.remove("armed");
     $("tradeGo").classList.add("accent");
-    if (side === "sell") $("tradeGo").textContent = "Sell";
+    if (!busy) $("tradeGo").textContent = goLabel();
+  }
+  // POST /api/trade. What it returns is what the wallet will sign, so the dialog shows those numbers from here on.
+  async function build(body) {
+    const p = await api("/api/trade", body);
+    quote = { ...p, taxUsd: p.taxUsd ?? quote?.taxUsd };
+    mode = p.refund;
+    renderQuote();
+    return p;
+  }
+  async function settle(sig) {
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try { const { status } = await api("/api/tx/" + sig); if (status !== "sent") return status; } catch {}
+    }
+    return "sent";
   }
   $("tradeGo").addEventListener("click", async () => {
+    say("");
     if (side === "sell" && !armed) {
       armed = true;
       $("streakWarn").classList.add("armed");
       $("tradeGo").classList.remove("accent"); // the bright button is for holding, not for this
-      $("tradeGo").textContent = `Leave anyway, pay ${(pool?.feeBps ?? S.sellTaxBps) / 100}%`;
+      $("tradeGo").textContent = goLabel();
       return;
     }
     if (S.demo) { toast(`Sample data. On launch this trades against the $${S.ticker} pool.`); disarm(); return; }
     if (!wallet) { await connect(); if (!wallet) return; }
-    const go = $("tradeGo"), label = go.textContent;
-    const amt = Number($("amtIn").value.replace(/,/g, ""));
-    const body = { wallet, side, amount: (side === "buy" ? units(amt, 9) : units(amt, pool.decimals)).toString(), slippageBps: 100 };
-    go.disabled = true;
+    const go = $("tradeGo"), s = side, tax = S.sellTaxBps / 100, body = { wallet, side: s, amount: quote.amountIn, slippageBps: 100 };
+    busy = true; go.disabled = true;
     try {
       go.textContent = "Preparing…";
-      if (S.clientRpc) {
-        const fresh = await readPool();
-        body.pool = { solReserve: fresh.solReserve.toString(), tokenReserve: fresh.tokenReserve.toString(), feeBps: fresh.feeBps };
-        body.blockhash = (await rpc("getLatestBlockhash", [{ commitment: "confirmed" }])).value.blockhash;
-      }
-      const prep = await api("/api/trade", body);
+      let prep = await build(body), sig;
       go.textContent = "Approve in your wallet…";
-      const signed = await signTx(prep.transaction);
-      go.textContent = "Sending…";
-      const sig = S.clientRpc ? await rpc("sendTransaction", [signed, { encoding: "base64", maxRetries: 3 }]) : (await api("/api/send", { signed })).signature;
-      go.textContent = "Confirming…";
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        let st = "sent";
-        try {
-          if (S.clientRpc) { const v = (await rpc("getSignatureStatuses", [[sig]])).value[0]; st = !v ? "sent" : v.err ? "failed" : ["confirmed", "finalized"].includes(v.confirmationStatus) ? "confirmed" : "sent"; }
-          else st = (await api("/api/tx/" + sig)).status;
-        } catch {}
-        if (st === "confirmed") { toast(side === "buy" ? "Welcome to the cult." : "You left. Your 15% just paid the members."); $("tradeDlg").close(); load(); return; }
-        if (st === "failed") throw new Error("Solana refused the trade. Nothing was spent.");
+      try { sig = await sendTx(prep.transaction); }
+      catch (e) {
+        // An atomic buy carries the fee key's signature, and a wallet that edits the transaction breaks it: build the plain buy.
+        if (prep.refund !== "atomic" || !/signature/i.test(e.message) || !/verif/i.test(e.message)) throw e;
+        say(`Your wallet couldn't send the buy with its refund inside. Approve it once more: the last ${tax}% will land seconds after.`);
+        prep = await build({ ...body, atomic: false });
+        sig = await sendTx(prep.transaction);
       }
-      toast("Not confirmed yet. Check your wallet's activity before trying again.");
+      go.textContent = "Confirming…";
+      const st = await settle(sig);
+      if (st === "failed") throw new Error("Solana refused the trade. Nothing was spent.");
+      if (st !== "confirmed") { say("Not confirmed yet. Check your wallet's activity before trying again."); return; }
+      $("amtIn").value = "";
+      requote();
+      if (s === "sell") say(`You left. Your ${tax}% is in the pot for the members who stay.`); else welcome(prep, sig);
+      load();
     } catch (e) {
-      toast(/rejected|cancel/i.test(e.message) ? "Cancelled in your wallet." : e.message);
-    } finally { go.disabled = false; go.textContent = label; }
+      say(/rejected|cancel/i.test(e.message) ? "Cancelled in your wallet." : e.message);
+    } finally { busy = false; renderQuote(); $("tradeGo").textContent = goLabel(); }
   });
+  // After a buy. With refund "after", the last part (the coin's hold-back, refunded by the Worker) lands seconds later:
+  // say so until the balance shows it or 30 s pass. The balance is the Worker's holder index; the page has no RPC.
+  async function welcome(prep, sig) {
+    const tax = S.sellTaxBps / 100, all = coins(prep.refund === "none" ? prep.outAmount : prep.outAfterRefund), got = `~${compact(all)} $${S.ticker}`;
+    if (prep.refund !== "after") return say(`Welcome to the cult. ${got} is in your wallet.`);
+    api("/api/refund/hint", { sig }).catch(() => {}); // a nudge to look now: the Helius webhook usually gets there first
+    const slow = `Some wallets are slow to show Token-2022 refunds and may show ${100 - tax}% for a while.`;
+    const before = W?.balance || 0, n = say(`Welcome to the cult. You bought ${got}: about ${100 - tax}% is in your wallet and the last ${tax}% is landing now.`, slow);
+    for (const end = Date.now() + 30_000; Date.now() < end;) {
+      await new Promise((r) => setTimeout(r, 5000));
+      if (n === msgN) await loadMine();
+      if (n !== msgN) return; // something newer is showing
+      if (W?.balance >= before + all * 0.99) return say(`Welcome to the cult. All ${got} is in your wallet.`, slow);
+    }
+    say(`Welcome to the cult. You bought ${got}. The last ${tax}% is sent back seconds after a buy, so it should be in your wallet now.`, slow);
+  }
 
   /* ---------- profiles ---------- */
   let pubCache = {};

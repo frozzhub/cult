@@ -26,12 +26,12 @@ const base = {
   ASSETS: { fetch: () => new Response("") },
 };
 const cfg = config(base);
-const getTx = (sig) => rpc(base, "getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]);
+const getTx = (sig) => rpc(base, "getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]);
 let proxy, env;
 
 before(async () => {
   rmSync(PERSIST, { recursive: true, force: true });
-  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply paper-hands --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
+  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
   proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } });
   env = { ...proxy.env, ...base };
 });

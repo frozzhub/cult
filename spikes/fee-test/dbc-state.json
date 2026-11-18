@@ -1,0 +1,23 @@
+{
+  "mint": "2GHaaCNpbFzNSaSFRACaX7mPLLboUPykykSx9QGKpZPZ",
+  "config": "25yysRWpscFw6RMeTwFL78duEWgnB6oxAbr8mzq17yZZ",
+  "pool": "8TDrWn1UhLUz1F6zvpN7aHCAFkWabr8avZp1rEx1Rsu5",
+  "txs": [
+    {
+      "label": "config + curve pool: 10% transfer fee, no SOL in",
+      "sig": "2xQUciLZnBFCUUuHBYqRSJmduxgYrzUZYBqeUjrw49JSd5pYw1xdDCq6zozQ2pMmbxGe3zWHNuRAJYvu6vqZ2VdF"
+    },
+    {
+      "label": "buy",
+      "sig": "4hCid2NoJFiq2SdWEkwLgXbPbpYqw2WhxPMqCvWWsbpq7pZmZ7bXaJuGnqc72wghuddYZ4xAp6rMpyiQgTinTj84"
+    },
+    {
+      "label": "refund buyer's withheld 10%",
+      "sig": "5kqGMQwHbtSzgPoM3H7ZQSDjtTU8xogn3ppnVSHvHwLejKTXXugQJPcGF5yQUq8h59UBoSyXGA539teW8HTAbrGR"
+    },
+    {
+      "label": "sell",
+      "sig": "4ekjSHdSGnMUmxDLVdH2PgEtKWaScUeadDvZd4fNduU3HHTNb6XLU4WnaGPbxCxtKSkQoA81UaVKRjrVVdjP3nSa"
+    }
+  ]
+}

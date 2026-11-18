@@ -1,31 +1,36 @@
-// $PAPER Worker: serves the site, a small read-only API, the Helius webhook and the airdrop cron.
+// $CULT Worker: serves the site, a small read-only API, the Helius webhook and the airdrop cron.
 //   GET  /api/state           -> totals, next airdrop, Wall of Paper Hands, airdrop history
 //   GET  /api/wallet/:address -> one holder's balance, streak, multiplier and USDC received
-//   POST /api/hook            -> Helius webhook: records sells (needs HELIUS_WEBHOOK_SECRET)
-//   /api/pool, /api/trade, /api/send, /api/tx/:sig -> buy/sell against the pool (trade.js)
-//   cron */5 * * * *          -> moves the current airdrop forward (see indexer.js)
+//   POST /api/hook            -> Helius webhook: records buys and sells, refunds buyers (needs HELIUS_WEBHOOK_SECRET)
+//   /api/quote, /api/trade, /api/tx/:sig, /api/refund/hint -> trading through Jupiter (trade.js)
+//   cron every minute         -> refunds, sweeps, the curve, then moves the current airdrop forward (see indexer.js)
+// The contract the page codes against is docs/API.md.
 //
 // DEMO="1" serves generated sample data. With DEMO off and no MINT, the site shows a pre-launch state.
 import { config } from "./config.js";
 import { handleWebhook, tick } from "./indexer.js";
 import { liveState, liveWallet, liveChart, RANGES } from "./live.js";
-import { handleTrade, tradeReady, poolAccounts } from "./trade.js";
+import { handleTrade, tradeReady } from "./trade.js";
+import { publicStage } from "./dbc.js";
 import { handleProfiles, syncX } from "./profiles.js";
 
 const HOUR = 3600_000;
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     try {
-      if (url.pathname === "/api/hook" && req.method === "POST") return await handleWebhook(req, env);
+      if (url.pathname === "/api/hook" && req.method === "POST") return await handleWebhook(req, env, ctx);
       if (/^\/api\/(auth\/|me$|x\/|profile\/)/.test(url.pathname)) return await handleProfiles(req, env, url);
       // ?demo=1 previews the site with sample data, devnet only (never next to real mainnet numbers).
       const demo = url.searchParams.get("demo") === "1" && env.CLUSTER === "devnet";
       if (url.pathname === "/api/state") return json(await state(demo ? { ...env, DEMO: "1" } : env));
       if (url.pathname === "/api/chart") return json(await chart(demo ? { ...env, DEMO: "1" } : env, url.searchParams.get("range")));
-      if (/^\/api\/(pool|trade|send|tx\/)/.test(url.pathname)) return await handleTrade(req, env, config(env), url.pathname);
+      if (/^\/api\/(quote|trade|refund\/|tx\/)/.test(url.pathname)) {
+        if (await rateLimited(req, env, url.pathname)) return json({ error: "Too many requests. Wait a minute and try again." }, 429);
+        return await handleTrade(req, env, config(env), url.pathname, ctx);
+      }
       const m = url.pathname.match(/^\/api\/wallet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (m) return json(await walletInfo(demo ? { ...env, DEMO: "1" } : env, m[1]));
     } catch (e) {
@@ -50,6 +55,16 @@ export default {
   },
 };
 
+// Cloudflare rate limit bindings (wrangler.jsonc): RL_TRADE for building trades and refund hints, RL_READ for quotes and
+// status reads, counted per caller address. A missing binding (local, devnet) or a failing one lets the request
+// through: this protects the RPC quota, it is not what keeps money safe.
+async function rateLimited(req, env, path) {
+  const rl = /^\/api\/(trade|refund)/.test(path) ? env.RL_TRADE : env.RL_READ;
+  if (!rl) return false;
+  try { return !(await rl.limit({ key: (req.headers.get("cf-connecting-ip") || "unknown") + path.split("/")[2] })).success; }
+  catch { return false; }
+}
+
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -59,13 +74,13 @@ function nextDropAt(cfg, now = Date.now()) {
 }
 
 // Only what the page needs from config (never the indexer settings).
-const publicCfg = (c) => ({ cluster: c.cluster, clientRpc: c.clientRpc, ticker: c.ticker, mint: c.mint, sellTaxBps: c.sellTaxBps, dropMinutes: c.dropMinutes, minHoldUsd: c.minHoldUsd, streaks: c.streaks, xHandle: c.xHandle, demo: c.demo, trade: tradeReady(c), accounts: tradeReady(c) ? poolAccounts(c) : null });
+const publicCfg = (c) => ({ cluster: c.cluster, ticker: c.ticker, mint: c.mint, sellTaxBps: c.sellTaxBps, dropMinutes: c.dropMinutes, minHoldUsd: c.minHoldUsd, streaks: c.streaks, xHandle: c.xHandle, demo: c.demo, trade: tradeReady(c) });
 
 async function state(env) {
   const cfg = config(env);
   const base = { ...publicCfg(cfg), nextDropAt: nextDropAt(cfg) };
-  if (cfg.demo) return { ...base, ...demoState(cfg.dropMinutes * 60_000) };
-  if (cfg.mint && env.DB) return { ...base, ...(await liveState(env, cfg)) };
+  if (cfg.demo) return { ...base, ...demoState(cfg.dropMinutes * 60_000, cfg.sellTaxBps), pool: { stage: "curve", progressBps: 3400, raisedSol: 29.2, thresholdSol: 86 } };
+  if (cfg.mint && env.DB) return { ...base, ...(await liveState(env, cfg)), pool: await publicStage(env.DB) };
   return { ...base, live: false };
 }
 
@@ -108,7 +123,8 @@ function demoDrop(k, P) {
   return { n: k - Math.floor(DEMO_LAUNCH / P), at: new Date(k * P).toISOString(), usdc, holders, tx: addr(r).slice(0, 44) + addr(r).slice(0, 44) };
 }
 
-function demoState(P = HOUR) {
+function demoState(P = HOUR, taxBps = 1000) {
+  const tax = Math.max(taxBps, 1) / 10_000; // never 0: the volume below divides by it
   const now = Date.now();
   const cur = Math.floor(now / P);
   const first = Math.floor(DEMO_LAUNCH / P);
@@ -125,7 +141,7 @@ function demoState(P = HOUR) {
   for (let i = 0; i < 30; i++) {
     t -= (60 + r() * 240) * 1000;
     const soldUsd = Math.round(80 + r() ** 2 * 4200);
-    latest.push({ wallet: addr(r), soldUsd, paidUsdc: round2(soldUsd * 0.15), at: new Date(t).toISOString() });
+    latest.push({ wallet: addr(r), soldUsd, paidUsdc: round2(soldUsd * tax), at: new Date(t).toISOString() });
   }
   // The pot for the coming drop fills in step with the round, so it ends where that drop lands.
   const pending = round2(demoDrop(cur + 1, P).usdc * ((now - cur * P) / P));
@@ -142,8 +158,8 @@ function demoState(P = HOUR) {
     price: DEMO_PRICE,
     supply: DEMO_SUPPLY,
     eligibleSupply: DEMO_ELIGIBLE,
-    // Volume: sells pay 15%, so sells ~= paid / 0.15; buys run a bit ahead of sells.
-    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / 0.15) * 2.1) },
+    // Volume: sells pay the tax, so sells ~= paid / tax; buys run a bit ahead of sells.
+    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / tax) * 2.1) },
     avgDrop24: round2(day / perDay),
     pending,
     wall: { top, latest },
@@ -161,7 +177,7 @@ function demoWallet(cfg, address) {
   const usd = balance * DEMO_PRICE;
   const eligible = usd >= cfg.minHoldUsd;
   const share = eligible ? (balance * mult) / DEMO_ELIGIBLE : 0;
-  const st = demoState(cfg.dropMinutes * 60_000);
+  const st = demoState(cfg.dropMinutes * 60_000, cfg.sellTaxBps);
   const received = round2(st.drops.slice(0, Math.min(48, streakDays * 24 || 6)).reduce((a, d) => a + d.usdc * share, 0) * (1 + streakDays / 6));
   return {
     address, live: true, demo: true,
