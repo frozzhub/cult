@@ -8,7 +8,7 @@
         "dev": "wrangler dev",
         "deploy": "wrangler deploy",
         "test": "node --test \"test/*.test.js\"",
-        "db:local": "wrangler d1 migrations apply paper-hands --local",
+        "db:local": "wrangler d1 migrations apply cult-mainnet --local",
         "build:programs": "cargo build-sbf --manifest-path programs/paper-hook/Cargo.toml && cargo build-sbf --manifest-path programs/paper-pool/Cargo.toml",
         "test:programs": "cd programs-tests && cargo +stable-x86_64-pc-windows-msvc test",
         "test:devnet": "node --test test/devnet.live.mjs"

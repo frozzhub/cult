@@ -82,7 +82,7 @@ const chainState = { balance: 2_000_000_000, sent: [], lose: new Set(), confirme
 const realFetch = globalThis.fetch;
 before(async () => {
   rmSync(PERSIST, { recursive: true, force: true });
-  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply paper-hands --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
+  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply cult-mainnet --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
   proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } });
   env = { ...proxy.env, HELIUS_KEY: "", SOLANA_RPC_URL: "https://rpc.test", PAYOUT_SECRET_KEY: JSON.stringify([...kp.secretKey]) };
   globalThis.fetch = async (input, init) => {

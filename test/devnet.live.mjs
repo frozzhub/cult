@@ -31,7 +31,7 @@ let proxy, env;
 
 before(async () => {
   rmSync(PERSIST, { recursive: true, force: true });
-  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply paper-hands --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
+  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply cult-mainnet --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
   proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } });
   env = { ...proxy.env, ...base };
 });

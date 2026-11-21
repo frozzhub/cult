@@ -68,7 +68,7 @@ globalThis.fetch = async (input, init) => {
 
 before(async () => {
   rmSync(PERSIST, { recursive: true, force: true });
-  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply paper-hands --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
+  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply cult-mainnet --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
   proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } }); // the CLI nests under v3
   env = {
     ...proxy.env, HELIUS_KEY: "", PAYOUT_SECRET_KEY: "", DEMO: "0", DRY_RUN: "0", MINT, POOL_ACCOUNT: POOL, PAYOUT_WALLET: PAYOUT, EXCLUDE: TEAM,

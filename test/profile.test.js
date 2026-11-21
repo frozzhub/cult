@@ -23,7 +23,7 @@ const alice = makeWallet(), bob = makeWallet();
 
 before(async () => {
   rmSync(PERSIST, { recursive: true, force: true });
-  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply paper-hands --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
+  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply cult-mainnet --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
   proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } });
   env = { ...proxy.env, DEMO: "0", MINT: "", X_CLIENT_ID: "client-123", X_CLIENT_SECRET: "shh", ASSETS: { fetch: () => new Response("") } };
 });

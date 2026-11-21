@@ -10,9 +10,9 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "paper-hands",
-      // Local only for now; create the remote one at deploy time and paste its id here.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_name": "cult-mainnet",
+      // Created 2026-11-21 for the Meteora mainnet launch.
+      "database_id": "c377e226-f681-45ff-a273-f8382f145065",
       "migrations_dir": "migrations"
     }
   ],
@@ -63,7 +63,7 @@
   "env": {
     "devnet": {
       "name": "paper-hands-devnet",
-      "d1_databases": [{ "binding": "DB", "database_name": "paper-hands-devnet", "database_id": "d629b4ad-55e4-46dd-95c3-b38b7616929c", "migrations_dir": "migrations" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "paper-hands-devnet-meteora", "database_id": "2c2f23cb-d5ce-4656-ae8e-ce4542e2b76c", "migrations_dir": "migrations" }],
       "triggers": { "crons": ["* * * * *"] },
       "vars": {
         "CLUSTER": "devnet",
