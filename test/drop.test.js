@@ -71,7 +71,7 @@ before(async () => {
   execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply cult-mainnet --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
   proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } }); // the CLI nests under v3
   env = {
-    ...proxy.env, HELIUS_KEY: "", PAYOUT_SECRET_KEY: "", DEMO: "0", DRY_RUN: "0", MINT, POOL_ACCOUNT: POOL, PAYOUT_WALLET: PAYOUT, EXCLUDE: TEAM,
+    ...proxy.env, VENUE: "pool", HELIUS_KEY: "", PAYOUT_SECRET_KEY: "", DEMO: "0", DRY_RUN: "0", MINT, POOL_ACCOUNT: POOL, PAYOUT_WALLET: PAYOUT, EXCLUDE: TEAM,
     SOLANA_RPC_URL: "https://rpc.test", JUP_API: "https://jup.test", HELIUS_WEBHOOK_SECRET: "s3cret",
     PAYOUT_SECRET_KEY: JSON.stringify([...kp.secretKey]),
     ASSETS: { fetch: () => new Response("") },

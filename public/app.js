@@ -73,14 +73,18 @@
   /* ---------- render ---------- */
   function render() {
     const live = S.live, tax = S.sellTaxBps / 100;
+    // Before launch there is no round to count down to.
+    $("clock").hidden = !live; document.querySelector(".hourbar").hidden = !live;
+    if (!live) $("eyebrow").textContent = "The cult opens soon";
     const every = S.dropMinutes === 60 ? "hour" : S.dropMinutes + " minutes";
     $("howDrop").textContent = `Every ${every}, the pot is swapped to USDC and split by holdings.`;
     $("dropsLead").textContent = `One every ${every}. Every payment is an on-chain transaction you can check.`;
     $("net").hidden = S.cluster !== "devnet" && !S.demo;
     $("net").textContent = S.demo ? "sample data" : "devnet";
     // The USDC icon in the HTML stands in for the word (screen readers still read "USDC"); keep it, swap the text around it.
-    const usdcIcon = $("line").querySelector(".usdc")?.outerHTML || "USDC";
-    $("line").innerHTML = `Sellers pay a ${tax}% fee, which is accumulated and airdropped every ${S.dropMinutes === 60 ? "hour" : S.dropMinutes + "&nbsp;minutes"} to holders in&nbsp;${usdcIcon}` + (live ? "" : " Opening soon.");
+    $("dealSell").textContent = tax + "%";
+    $("dealBuy").textContent = tax + "%";
+    $("dealEvery").textContent = S.dropMinutes === 60 ? "hour" : S.dropMinutes + " minutes";
     $("howHold").textContent = `Hold $${S.minHoldUsd} or more to be counted. Stay longer and your devotion earns up to ${Math.max(...S.streaks.map((s) => s.mult))}× the cut.`;
     const met = S.venue === "meteora";
     $("howJoin").textContent = met ? `Join by buying $${S.ticker}. Joining is free: the ${tax}% buy fee is sent back to your wallet within seconds.` : `Join by buying $${S.ticker}. Joining is free: no tax on buys.`;
@@ -343,7 +347,7 @@
     if (!ME?.x) $("walletBtn").textContent = wallet ? short(wallet) : "Connect";
     const show = !!(wallet && W && W.balance > 0);
     $("mine").hidden = !show;
-    $("line").hidden = show;
+    $("deal").hidden = show;
     if (!show) return;
     $("mEst").textContent = W.eligible ? "~" + tiny(W.estNext) : "—";
     $("mBal").textContent = compact(W.balance);
