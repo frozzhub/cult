@@ -26,6 +26,8 @@
     "MINT": "",
     // 10% on every trade (Meteora), in SOL. Buys are refunded in full; sells fund the airdrop.
     "FEE_BPS": "1000",
+    // Meteora launch (buy refunds, Meteora copy on the site) even before VAULTS is set.
+    "VENUE": "meteora",
     "DROP_MINUTES": "10",
     // Wallets below this USD value are skipped, which keeps USDC account rent under control.
     "MIN_HOLD_USD": "50",
@@ -81,6 +83,8 @@
         "POLL_GAP_MS": "150",
         "POLL_PAGE": "100",
         "FEE_BPS": "1000",
+    // Meteora launch (buy refunds, Meteora copy on the site) even before VAULTS is set.
+    "VENUE": "meteora",
         // Small float on devnet (the wallets only hold a few tenths of a SOL).
         "REFUND_FLOAT_LAMPORTS": "20000000",
         "DROP_MINUTES": "10",

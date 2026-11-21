@@ -11,7 +11,7 @@ export function config(env) {
     clientRpc: env.CLIENT_RPC || "",       // set: the browser reads the pool and sends trades through this RPC itself
     ticker: env.TICKER || "CULT",
     mint: env.MINT || "",
-    sellTaxBps: Number(env.SELL_TAX_BPS || 1500),
+    sellTaxBps: Number(env.SELL_TAX_BPS || env.FEE_BPS || 1000),
     dropMinutes: Number(env.DROP_MINUTES || 60),
     minHoldUsd: Number(env.MIN_HOLD_USD || 50),
     streaks: list(env.STREAKS || "7:1.25,30:1.5").map((s) => { const [d, x] = s.split(":"); return { days: Number(d), mult: Number(x) }; }).sort((a, b) => a.days - b.days),
@@ -38,7 +38,7 @@ export function config(env) {
     refunds: env.REFUNDS !== "0",                  // pay every buyer's fee back
     refundFloat: Number(env.REFUND_FLOAT_LAMPORTS || 500_000_000), // SOL kept back for instant refunds between claims
   };
-  cfg.venue = cfg.vaults.length ? "meteora" : "pool";
+  cfg.venue = env.VENUE === "pool" ? "pool" : cfg.vaults.length || env.VENUE === "meteora" ? "meteora" : "pool";
   // The pool PDA follows from the pool program and the mint, so POOL_ACCOUNT is optional.
   if (!cfg.pool && cfg.poolProgram && cfg.mint) {
     try { cfg.pool = PublicKey.findProgramAddressSync([new TextEncoder().encode("pool"), new PublicKey(cfg.mint).toBytes()], new PublicKey(cfg.poolProgram))[0].toBase58(); } catch {}

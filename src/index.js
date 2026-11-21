@@ -159,7 +159,7 @@ function demoState(P = HOUR) {
     supply: DEMO_SUPPLY,
     eligibleSupply: DEMO_ELIGIBLE,
     // Volume: sells pay 15%, so sells ~= paid / 0.15; buys run a bit ahead of sells.
-    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / 0.15) * 2.1) },
+    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / 0.08) * 2.1), refundedUsd: round2((paid / 0.08) * 1.1 * 0.1), refunds: 3184 },
     avgDrop24: round2(day / perDay),
     pending,
     wall: { top, latest },

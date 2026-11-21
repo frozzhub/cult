@@ -465,7 +465,7 @@
     const sol = Number(pool.solReserve) / 1e9, tok = Number(pool.tokenReserve) / 10 ** pool.decimals;
     if (side === "buy") {
       const imp = (amt / (sol + amt)) * 100;
-      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">Joining is free: no tax on buys.</div>${impact(imp)}`;
+      q.innerHTML = `<div class="n">~${compact((amt * tok) / (sol + amt))} $${esc(S.ticker)}</div><div class="muted">${S.venue === "meteora" ? `Joining is free: the <span class="accent mono">${(amt * S.feeBps / 10000).toFixed(4)} SOL</span> fee comes back to you in seconds.` : "Joining is free: no tax on buys."}</div>${impact(imp)}`;
     } else {
       const gross = (amt * sol) / (tok + amt), fee = (gross * pool.feeBps) / 10_000;
       const imp = (amt / (tok + amt)) * 100;
