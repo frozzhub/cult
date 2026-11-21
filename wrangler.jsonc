@@ -1,5 +1,5 @@
 {
-  // CULT ($CULT): site + read-only API + Helius webhook + airdrop cron. Not deployed yet (waiting on the green light).
+  // CULT ($CULT) on Meteora: site + API + buy-refund watcher + airdrop cron. Not deployed yet (waiting on the green light).
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "paper-hands",
   "main": "src/index.js",
@@ -18,13 +18,14 @@
   ],
   // Every minute: open the airdrop for each 10-minute round, then snapshot -> swap -> allocate -> pay, one step at a time.
   "triggers": { "crons": ["* * * * *"] },
-  // Signing a few hundred payout transactions takes a while.
+  // Signing a few hundred payout transactions takes a while. The refund watcher runs ~55s of each minute (mostly waiting).
   "limits": { "cpu_ms": 120000 },
   "vars": {
     "TICKER": "CULT",
     // Coin mint. Empty until launch: the Buy button and live data switch on when it's set.
     "MINT": "",
-    "SELL_TAX_BPS": "1500",
+    // 10% on every trade (Meteora), in SOL. Buys are refunded in full; sells fund the airdrop.
+    "FEE_BPS": "1000",
     "DROP_MINUTES": "10",
     // Wallets below this USD value are skipped, which keeps USDC account rent under control.
     "MIN_HOLD_USD": "50",
@@ -34,15 +35,14 @@
     // "1" serves generated sample data for review. Turn off before launch.
     "DEMO": "1",
 
-    // ---- on-chain programs (programs/). Set both to switch on the site's Buy/Sell panel. ----
-    "POOL_PROGRAM": "",
-    "HOOK_PROGRAM": "",
-
-    // ---- indexer ----
-    // The pool PDA (owner of its $PAPER vault). Optional: worked out from POOL_PROGRAM + MINT when empty.
+    // ---- Meteora launch (all three printed by scripts/launch-meteora.mjs) ----
+    // The bonding curve pool, and its "<base vault>:<quote vault>". The DAMM v2 pool after graduation is found automatically.
     "POOL_ACCOUNT": "",
-    // Gets the 15% in SOL from the pool, swaps it to USDC and pays holders. Its key is the PAYOUT_SECRET_KEY secret.
+    "VAULTS": "",
+    // The treasury: earns the fees, refunds buyers, swaps to USDC and pays holders. Its key is the PAYOUT_SECRET_KEY secret.
     "PAYOUT_WALLET": "",
+    // SOL kept back in the treasury for instant refunds between fee claims (0.5 SOL).
+    "REFUND_FLOAT_LAMPORTS": "500000000",
     // Comma-separated wallets that never get airdrops (team, treasury, CEX wallets).
     "EXCLUDE": "",
     // "1" runs every step without signing or sending anything. Set "0" to go live.
@@ -58,8 +58,8 @@
   },
   // Secrets: SOLANA_RPC_URL (Helius key or URL), HELIUS_WEBHOOK_SECRET, PAYOUT_SECRET_KEY, JUP_API_KEY (optional)
 
-  // `wrangler deploy --env devnet`: the devnet launch, live trading, airdrops in DRY_RUN (Jupiter/USDC are mainnet only).
-  // Sells come in by polling the pool over RPC, so no Helius webhook is needed.
+  // `wrangler deploy --env devnet`: the devnet launch on Meteora's bonding curve (scripts/launch-meteora.mjs, tiny
+  // market caps so it can graduate). Buys refunded for real; airdrops in a stand-in USDC (no Jupiter on devnet).
   "env": {
     "devnet": {
       "name": "paper-hands-devnet",
@@ -68,12 +68,11 @@
       "vars": {
         "CLUSTER": "devnet",
         "X_HANDLE": "",
-        "POOL_ACCOUNT": "",
+        "POOL_ACCOUNT": "ELY4npxK6fYunq28Vm4JfPma85ARcW7aAg5xHG33NkJh",
+        "VAULTS": "75fsZKQoTw4uTZW5w36qHVXMELqqhK4HcueYAQesMXW9:CRqoNrVSJ5cbwPz7TpZah3tGgAcDjE93eTQJ2zc5Hugn",
         "EXCLUDE": "",
         "TICKER": "CULT",
-        "MINT": "FpAWetRJ4MJm4mUdTUVeagoHjcQv3oXevu9XUcVFuN6a",
-        "POOL_PROGRAM": "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu",
-        "HOOK_PROGRAM": "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2",
+        "MINT": "EPZ4DMTfVdRHDk7dZepBm5DkpW2gNUZa5uXxicPya49u",
         "PAYOUT_WALLET": "GCpRo9fhAho6XhCrihAjgMz9WNiTB5Z6mYtFtmnYEBbc",
         // api.devnet.solana.com blocks Cloudflare IPs. These two free endpoints don't (tried in order, failover on 429/403).
         "SOLANA_RPC_URL": "https://solana-devnet.g.alchemy.com/v2/demo,https://solana-devnet.api.onfinality.io/public",
@@ -81,9 +80,9 @@
         "HOLDERS": "index",
         "POLL_GAP_MS": "150",
         "POLL_PAGE": "100",
-        // Browsers aren't blocked by the public devnet RPC, so the page reads the pool and sends trades itself.
-        "CLIENT_RPC": "https://api.devnet.solana.com",
-        "SELL_TAX_BPS": "1500",
+        "FEE_BPS": "1000",
+        // Small float on devnet (the wallets only hold a few tenths of a SOL).
+        "REFUND_FLOAT_LAMPORTS": "20000000",
         "DROP_MINUTES": "10",
         "MIN_HOLD_USD": "1",
         "STREAKS": "7:1.25,30:1.5",
@@ -93,7 +92,7 @@
         "DRY_RUN": "0",
         "SWAP": "off",
         "USDC_MINT": "56EvddarourfZET4VC6EMYKwyG7uLWbBdxtcetmp1k5e",
-        "SOL_RESERVE_LAMPORTS": "50000000",
+        "SOL_RESERVE_LAMPORTS": "10000000",
         "MIN_PAYOUT_USDC": "0.01",
         "BATCH_SIZE": "8",
         "SLIPPAGE_BPS": "100",

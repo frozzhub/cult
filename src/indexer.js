@@ -13,6 +13,7 @@
 import { config, dropMs, streakMult, ADDR } from "./config.js";
 import * as chain from "./chain.js";
 import { readPool } from "./trade.js";
+import * as meteora from "./meteora.js";
 
 const DAY = 86_400_000;
 const MIN_SWAP_LAMPORTS = 10_000_000; // don't bother swapping under 0.01 SOL
@@ -51,7 +52,7 @@ export function allocate(rows, pot, min, batchSize) {
 
 // Holder map -> eligible rows with streak-boosted weights.
 export function weigh(cfg, { holders, since, lastSell, decimals, price, now }) {
-  const skip = new Set([cfg.pool, cfg.payout, ...cfg.exclude]);
+  const skip = new Set([cfg.pool, cfg.payout, ...cfg.exclude, ...meteora.AUTHORITIES]);
   const rows = [];
   for (const [wallet, raw] of holders) {
     if (skip.has(wallet)) continue;
@@ -76,7 +77,10 @@ export async function cachedPrices(env, cfg, now = Date.now()) {
   if (c && now - c.at < 60_000) return c.v;
   try {
     const p = await chain.prices(env, cfg);
-    if (cfg.poolProgram && p.sol) {
+    if (cfg.venue === "meteora" && p.sol && !p.token) { // Jupiter doesn't know it yet (devnet, first minutes): last trade
+      const t = await env.DB.prepare("SELECT price_sol FROM trades ORDER BY at DESC LIMIT 1").first();
+      p.token = t ? t.price_sol * p.sol : c?.v?.token || 0;
+    } else if (cfg.poolProgram && p.sol) {
       const pool = await readPool(env, cfg).catch(() => null);
       if (pool && pool.tokenReserve > 0n) p.token = poolPrice(pool, p.sol);
       else if (c?.v?.token) p.token = c.v.token; // pool read failed: keep the last good price rather than 0
@@ -187,7 +191,8 @@ export async function pollMint(env, cfg, now = Date.now()) {
   if (!sigs.length) { await kvSet(env.DB, "poll_state", { behind: 0, ok: true }, now); return { polled: 0 }; }
   const batch = sigs.reverse().slice(0, MAX_TX_PER_TICK); // oldest first
   const { sol } = await cachedPrices(env, cfg, now);
-  const rent = await poolRent(env, cfg);
+  const rent = cfg.venue === "meteora" ? 0 : await poolRent(env, cfg);
+  const mc = cfg.venue === "meteora" ? await meteora.liveCfg(env, cfg) : null;
   let added = 0;
   for (const s of batch) {
     if (s.err) continue;
@@ -200,6 +205,7 @@ export async function pollMint(env, cfg, now = Date.now()) {
         ON CONFLICT(address) DO UPDATE SET owner = excluded.owner, amount = excluded.amount, slot = excluded.slot WHERE excluded.slot >= token_accounts.slot`)
         .bind(JSON.stringify(accts), Number(tx.slot || 0)).run();
     }
+    if (mc) { added += await meteora.recordSwaps(env, mc, meteora.parseSwaps(s.signature, tx, mc), sol); continue; }
     const trade = parseTrade(s.signature, tx, cfg, rent);
     if (trade) {
       await env.DB.prepare("INSERT OR IGNORE INTO trades (sig, at, side, wallet, sol_lamports, price_sol, sol_usd) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -261,6 +267,12 @@ export async function handleWebhook(req, env) {
   const txs = Array.isArray(body) ? body : body ? [body] : [];
   const { sol } = await cachedPrices(env, cfg);
   let added = 0;
+  if (cfg.venue === "meteora") { // Helius "raw" webhook on the pool accounts: same shape as getTransaction
+    const mc = await meteora.liveCfg(env, cfg);
+    for (const tx of txs) added += await meteora.recordSwaps(env, mc, meteora.parseSwaps(tx.transaction?.signatures?.[0] || tx.signature, tx, mc), sol);
+    const paid = mc.refunds ? await meteora.payRefunds(env, mc).catch((e) => ({ error: e.message })) : null;
+    return Response.json({ ok: true, added, paid });
+  }
   for (const tx of txs) {
     const s = parseSell(tx, cfg);
     if (s && (await recordSell(env, s, sol))) added++; // false = Helius retried one we already have
@@ -283,6 +295,14 @@ export async function tick(env, now = Date.now()) {
     await cachedPrices(env, cfg, now);
     const polled = await pollMint(env, cfg, now).catch((e) => ({ pollError: e.message }));
     if (polled.pollError) console.error("poll", polled.pollError);
+    if (cfg.venue === "meteora") {
+      const g = await kvGet(db, "grad_check");
+      if (!g || now - g.at > 5 * 60_000) {
+        await kvSet(db, "grad_check", 1, now);
+        const grad = await meteora.checkGraduation(env, cfg).catch((e) => console.error("graduation", e.message));
+        if (grad) console.log("graduated to", grad.pool);
+      }
+    }
     d = await db.prepare("SELECT * FROM drops WHERE status NOT IN ('done', 'skipped') ORDER BY n LIMIT 1").first();
     if (!d) d = await openNext(db, cfg, now);
     if (!d) return { idle: true };
@@ -309,7 +329,12 @@ async function openNext(db, cfg, now) {
   await db.prepare("INSERT INTO drops (n, at, status, updated) VALUES (?, ?, 'snapshot', ?)").bind(n, at, now).run();
   await db.prepare("UPDATE sells SET drop_n = ? WHERE drop_n IS NULL AND at < ?").bind(n, at).run();
   const fee = await db.prepare("SELECT COALESCE(SUM(fee_lamports), 0) AS f FROM sells WHERE drop_n = ?").bind(n).first();
-  return setDrop(db, n, { fee_lamports: fee.f });
+  if (cfg.venue !== "meteora") return setDrop(db, n, { fee_lamports: fee.f });
+  // Meteora: the treasury keeps 80% of each sell's fee, and tops up the 20% Meteora took from each buy refund.
+  const prev = await db.prepare("SELECT at FROM drops WHERE n < ? ORDER BY n DESC LIMIT 1").bind(n).first();
+  const ref = await db.prepare("SELECT COALESCE(SUM(lamports), 0) AS r FROM refunds WHERE at >= ? AND at < ?").bind(prev?.at ?? 0, at).first();
+  const keep = (10_000 - cfg.protocolBps) / 10_000;
+  return setDrop(db, n, { fee_lamports: Math.max(0, Math.floor(fee.f * keep - ref.r * (1 - keep))) });
 }
 
 const STEPS = {
@@ -366,12 +391,18 @@ const STEPS = {
     const payees = (await db.prepare("SELECT COUNT(*) AS c FROM payouts WHERE drop_n = ?").bind(d.n).first()).c;
     const txFees = Math.ceil(payees / cfg.batchSize) * chain.TX_FEE;
     if (cfg.dryRun) return setDrop(db, d.n, { swap_sig: "dry-run", swap_lamports: d.fee_lamports, status: "allocate" });
+    // Meteora: pull this round's fees out of the pool into the treasury first.
+    if (cfg.venue === "meteora") await meteora.claimFees(env, cfg).catch((e) => console.error("claim", e.message));
     // SWAP=off: no Jupiter (devnet). The pot is whatever payout token the wallet already holds.
     if (env.SWAP === "off") return setDrop(db, d.n, { swap_sig: "none", swap_lamports: 0, status: "allocate" });
 
     const kp = chain.payoutKeypair(env, cfg);
+    let held = 0;
+    if (cfg.venue === "meteora") {
+      held = cfg.refundFloat + (await meteora.owedRefunds(db)); // never swap away what buyers are owed
+    }
     const bal = Number(await chain.solBalance(env, cfg.payout));
-    const spare = bal - cfg.solReserve - d.rent_lamports - txFees;
+    const spare = bal - cfg.solReserve - held - d.rent_lamports - txFees;
     if (spare < MIN_SWAP_LAMPORTS) return setDrop(db, d.n, { swap_sig: "none", swap_lamports: 0, status: "allocate" });
     const s = await chain.buildSwap(env, cfg, kp, spare);
     d = await setDrop(db, d.n, { swap_sig: s.sig, swap_lvbh: s.lvbh || (await chain.blockHeight(env)) + 150, swap_lamports: spare });

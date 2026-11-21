@@ -29,7 +29,16 @@ export function config(env) {
     batchSize: Number(env.BATCH_SIZE || 8),
     slippageBps: Number(env.SLIPPAGE_BPS || 100),
     jup: (env.JUP_API || "https://lite-api.jup.ag").replace(/\/$/, ""),
+    // Meteora launch: VAULTS = "<base vault>:<quote vault>" of the bonding curve (from scripts/launch-meteora.mjs).
+    // The DAMM v2 pool after graduation is found automatically (or set DAMM_POOL).
+    vaults: list(env.VAULTS).map((v) => { const [base, quote] = v.split(":"); return { base, quote }; }).filter((v) => v.base && v.quote),
+    dammPool: env.DAMM_POOL || "",
+    feeBps: Number(env.FEE_BPS || 1000),          // the fee on every trade
+    protocolBps: Number(env.PROTOCOL_BPS || 2000), // Meteora's cut of that fee
+    refunds: env.REFUNDS !== "0",                  // pay every buyer's fee back
+    refundFloat: Number(env.REFUND_FLOAT_LAMPORTS || 500_000_000), // SOL kept back for instant refunds between claims
   };
+  cfg.venue = cfg.vaults.length ? "meteora" : "pool";
   // The pool PDA follows from the pool program and the mint, so POOL_ACCOUNT is optional.
   if (!cfg.pool && cfg.poolProgram && cfg.mint) {
     try { cfg.pool = PublicKey.findProgramAddressSync([new TextEncoder().encode("pool"), new PublicKey(cfg.mint).toBytes()], new PublicKey(cfg.poolProgram))[0].toBase58(); } catch {}

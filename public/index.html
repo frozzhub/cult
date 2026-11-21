@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>CULT</title>
-  <meta name="description" content="Everyone's panicking. The cult is getting paid. Joining is free, leaving costs 15%, and every 10 minutes it's split between the members in USDC.">
+  <meta name="description" content="Everyone's panicking. The cult is getting paid. Joining is free (your 10% buy fee comes back in seconds), leaving costs 10%, and every 10 minutes it's split between the members in USDC.">
   <meta name="theme-color" content="#0d0e10">
   <!-- Link previews (X, Telegram, Discord). The Worker makes og:image absolute for whichever domain serves it. -->
   <meta property="og:title" content="$CULT: the cult gets paid">
-  <meta property="og:description" content="Joining is free. Leaving costs 15%, and every 10 minutes it's split between the members in USDC.">
+  <meta property="og:description" content="Joining is free. Leaving costs 10%, and every 10 minutes it's split between the members in USDC.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="/og.png">
   <meta property="og:image:width" content="1200">
@@ -49,7 +49,7 @@
       <div class="clock" id="clock">--:--</div>
       <div class="hourbar" aria-hidden="true"><div id="hourFill"></div></div>
       <div class="pot" id="pot" hidden><span class="n" id="potN">$0.00</span><span class="bump" id="potBump"></span><small>paid in this round by those who left</small></div>
-      <p class="line" id="line">Sellers pay a 15% fee, which is accumulated and airdropped every 10&nbsp;minutes to holders in&nbsp;<svg class="usdc" viewBox="0 0 32 32" role="img" aria-label="USDC"><circle cx="16" cy="16" r="16" fill="#2775CA"/><path fill="#fff" d="M20.1 18.4c0-2.1-1.3-2.9-3.8-3.2-1.8-.3-2.2-.7-2.2-1.6s.6-1.4 1.8-1.4c1.1 0 1.7.4 2 1.3.1.2.2.3.4.3h1c.2 0 .4-.2.4-.4v-.1c-.3-1.3-1.3-2.3-2.7-2.4V9.4c0-.2-.2-.4-.5-.4h-.9c-.2 0-.4.2-.4.5v1.4c-1.8.3-3 1.5-3 3 0 2 1.2 2.8 3.7 3.1 1.7.3 2.3.7 2.3 1.6s-.9 1.6-2 1.6c-1.6 0-2.1-.7-2.3-1.6 0-.2-.2-.3-.4-.3h-1c-.2 0-.4.2-.4.4v.1c.2 1.5 1.2 2.5 3.1 2.8v1.4c0 .2.2.4.5.4h.9c.2 0 .4-.2.4-.5v-1.4c1.8-.3 3-1.5 3-3.1z"/><path fill="#fff" d="M13 24.9c-4.7-1.7-7.1-6.9-5.4-11.5.9-2.5 2.9-4.5 5.4-5.4.2-.1.4-.3.4-.6v-.9c0-.2-.1-.4-.4-.5h-.1C7.4 7.8 4.1 14 5.9 19.7c1.1 3.4 3.7 6 7.1 7.1.2.1.5 0 .5-.3v-.9c0-.3-.2-.6-.5-.7zm6.1-19.8c-.2-.1-.5 0-.5.3v.9c0 .3.2.5.4.6 4.7 1.7 7.1 6.9 5.4 11.5-.9 2.5-2.9 4.5-5.4 5.4-.2.1-.4.3-.4.6v.9c0 .2.1.4.4.5h.1c5.7-1.8 8.8-7.9 7-13.6-1.1-3.5-3.8-6.1-7-7.1z"/></svg></p>
+      <p class="line" id="line">Sellers pay a 10% fee, which is accumulated and airdropped every 10&nbsp;minutes to holders in&nbsp;<svg class="usdc" viewBox="0 0 32 32" role="img" aria-label="USDC"><circle cx="16" cy="16" r="16" fill="#2775CA"/><path fill="#fff" d="M20.1 18.4c0-2.1-1.3-2.9-3.8-3.2-1.8-.3-2.2-.7-2.2-1.6s.6-1.4 1.8-1.4c1.1 0 1.7.4 2 1.3.1.2.2.3.4.3h1c.2 0 .4-.2.4-.4v-.1c-.3-1.3-1.3-2.3-2.7-2.4V9.4c0-.2-.2-.4-.5-.4h-.9c-.2 0-.4.2-.4.5v1.4c-1.8.3-3 1.5-3 3 0 2 1.2 2.8 3.7 3.1 1.7.3 2.3.7 2.3 1.6s-.9 1.6-2 1.6c-1.6 0-2.1-.7-2.3-1.6 0-.2-.2-.3-.4-.3h-1c-.2 0-.4.2-.4.4v.1c.2 1.5 1.2 2.5 3.1 2.8v1.4c0 .2.2.4.5.4h.9c.2 0 .4-.2.4-.5v-1.4c1.8-.3 3-1.5 3-3.1z"/><path fill="#fff" d="M13 24.9c-4.7-1.7-7.1-6.9-5.4-11.5.9-2.5 2.9-4.5 5.4-5.4.2-.1.4-.3.4-.6v-.9c0-.2-.1-.4-.4-.5h-.1C7.4 7.8 4.1 14 5.9 19.7c1.1 3.4 3.7 6 7.1 7.1.2.1.5 0 .5-.3v-.9c0-.3-.2-.6-.5-.7zm6.1-19.8c-.2-.1-.5 0-.5.3v.9c0 .3.2.5.4.6 4.7 1.7 7.1 6.9 5.4 11.5-.9 2.5-2.9 4.5-5.4 5.4-.2.1-.4.3-.4.6v.9c0 .2.1.4.4.5h.1c5.7-1.8 8.8-7.9 7-13.6-1.1-3.5-3.8-6.1-7-7.1z"/></svg></p>
 
       <div class="mine" id="mine" hidden>
         <div class="cut"><span class="est" id="mEst"></span><span class="lbl">your cut this round</span></div>
@@ -88,16 +88,17 @@
     <div class="totals" id="totals" hidden>
       <div id="tVol"><div class="n" id="volN"></div><div class="l">total volume</div></div>
       <div id="tPaid"><div class="n accent" id="paidN"></div><div class="l">USDC paid to members</div></div>
+      <div id="tRefund" hidden><div class="n" id="refundN"></div><div class="l">buy fees refunded</div></div>
       <div id="tHolders"><div class="n" id="holdersN"></div><div class="l">members paid last round</div></div>
-      <div id="tDrops"><div class="n" id="dropsN"></div><div class="l">rounds paid</div></div>
+      <div id="tDrops"><div class="n" id="dropsN"></div><div class="l" id="dropsL">rounds paid</div></div>
     </div>
 
     <div class="how">
       <div>
         <h2>How it works</h2>
         <ol class="steps">
-          <li><div>Join by buying $CULT. Joining is free: no tax on buys.</div></li>
-          <li><div>Leaving costs 15%: the exit tithe, taken in SOL so it never dumps the chart.</div></li>
+          <li><div id="howJoin">Join by buying $CULT. Joining is free: the 10% buy fee is sent back to your wallet within seconds.</div></li>
+          <li><div id="howLeave">Leaving costs 10%: the exit tithe, taken in SOL so it never dumps the chart.</div></li>
           <li><div id="howDrop">Every 10 minutes, the tithe is swapped to USDC and split between members.</div></li>
           <li><div id="howHold">Hold $50 or more to be counted. Stay longer and your devotion earns up to 1.5× the cut.</div></li>
         </ol>

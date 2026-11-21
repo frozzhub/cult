@@ -82,13 +82,21 @@
     const usdcIcon = $("line").querySelector(".usdc")?.outerHTML || "USDC";
     $("line").innerHTML = `Sellers pay a ${tax}% fee, which is accumulated and airdropped every ${S.dropMinutes === 60 ? "hour" : S.dropMinutes + "&nbsp;minutes"} to holders in&nbsp;${usdcIcon}` + (live ? "" : " Opening soon.");
     $("howHold").textContent = `Hold $${S.minHoldUsd} or more to be counted. Stay longer and your devotion earns up to ${Math.max(...S.streaks.map((s) => s.mult))}× the cut.`;
+    const met = S.venue === "meteora";
+    $("howJoin").textContent = met ? `Join by buying $${S.ticker}. Joining is free: the ${tax}% buy fee is sent back to your wallet within seconds.` : `Join by buying $${S.ticker}. Joining is free: no tax on buys.`;
+    $("howLeave").textContent = `Leaving costs ${tax}%: the exit tithe, taken in SOL so it never dumps the chart.`;
     $("rules").innerHTML = [
-      `Joining (buying) has no tax. Leaving (selling) pays ${tax}% of the SOL you receive: the exit tithe, straight to the payout wallet.`,
+      ...(met ? [
+        `Every trade pays a ${tax}% fee in SOL, on Meteora. Buy anywhere (Axiom, GMGN, Jupiter or here) and the cult sends your whole ${tax}% back to the wallet that got the $${S.ticker}, usually within seconds.`,
+        `Selling pays ${tax}% of the sale: the exit tithe. Meteora keeps a fifth of every fee; the rest goes to the cult treasury.`,
+      ] : [`Joining (buying) has no tax. Leaving (selling) pays ${tax}% of the SOL you receive: the exit tithe, straight to the payout wallet.`]),
       `Every ${S.dropMinutes} minutes, members holding at least $${S.minHoldUsd} of $${S.ticker} are counted and paid in USDC.`,
       `Your cut is your balance times your devotion boost, out of every member counted.`,
       `Devotion (days without selling): ${S.streaks.map((s) => `${s.days} days ${s.mult}×`).join(", ")}. Any sell resets it to 1×.`,
-      `The pool, team wallets and the payout wallet are never paid. Liquidity is locked and the tithe can never change.`,
-      `Payouts come only from people leaving. If nobody sells, nobody gets paid. This is a game, not an investment.`,
+      met ? `The pool, team wallets and the treasury are never paid. After graduation all liquidity is permanently locked and the ${tax}% fee carries over to the new pool.`
+        : `The pool, team wallets and the payout wallet are never paid. Liquidity is locked and the tithe can never change.`,
+      met ? `Payouts come only from people leaving, minus Meteora's cut of the buy refunds. If nobody sells, nobody gets paid. This is a game, not an investment.`
+        : `Payouts come only from people leaving. If nobody sells, nobody gets paid. This is a game, not an investment.`,
       ...(S.cluster === "devnet" ? ["This is the devnet test launch: trades use devnet SOL and payouts use a test stand-in for USDC."] : []),
     ].map((t) => `<li>${esc(t)}</li>`).join("");
 
@@ -108,12 +116,15 @@
     $("tVol").hidden = !(S.totals.volumeUsd > 0);
     $("volN").textContent = usdRound(S.totals.volumeUsd || 0);
     $("tPaid").hidden = !(S.totals.paidUsdc > 0);
+    $("tRefund").hidden = !(S.totals.refundedUsd > 0);
+    $("refundN").textContent = usdRound(S.totals.refundedUsd || 0);
     $("tDrops").hidden = !(S.totals.drops > 0);
     renderPrice();
     $("paidN").textContent = usdRound(S.totals.paidUsdc);
     $("tHolders").hidden = !(S.totals.holders > 0);
     $("holdersN").textContent = S.totals.holders.toLocaleString("en-US");
     $("dropsN").textContent = S.totals.drops.toLocaleString("en-US");
+    $("dropsL").textContent = S.totals.drops === 1 ? "round paid" : "rounds paid";
     $("calc").hidden = !(S.avgDrop24 > 0 && S.eligibleSupply > 0) || !!W?.eligible;
     tick();
     renderWall();
@@ -376,7 +387,8 @@
   };
   const u64 = (b, o) => new DataView(b.buffer, b.byteOffset).getBigUint64(o, true);
   async function readPool() {
-    if (S.demo) return { solReserve: 1_200_000_000_000n, tokenReserve: 600_000_000_000_000n, feeBps: 1500, decimals: 6 };
+    if (S.venue === "meteora" && !S.demo) return { meteora: true, feeBps: S.feeBps, decimals: 6 };
+    if (S.demo) return { solReserve: 1_200_000_000_000n, tokenReserve: 600_000_000_000_000n, feeBps: S.sellTaxBps || 1000, decimals: 6 };
     if (!S.clientRpc) { const p = await api("/api/pool"); return { solReserve: BigInt(p.solReserve), tokenReserve: BigInt(p.tokenReserve), feeBps: p.feeBps, decimals: p.decimals }; }
     const r = await rpc("getMultipleAccounts", [[S.accounts.pool, S.accounts.vault, S.mint], { encoding: "base64" }]);
     const [p, v, m] = r.value.map((a) => fromB64(a.data[0]));
@@ -412,20 +424,44 @@
   }
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; const v = Number(b.dataset.v); $("amtIn").value = side === "buy" ? String(v) : String(Math.floor(v)); renderQuote(); });
   const impact = (p) => (p < 0.5 ? "" : `<div class="impact${p >= 10 ? " high" : ""}">Price impact ${p.toFixed(p < 10 ? 1 : 0)}%</div>`);
-  function renderQuote() {
+  // Meteora: quotes come from the Worker (the curve isn't a simple x*y pool). Debounced while typing.
+  let qTimer, qSeq = 0, mq = null;
+  function meteoraQuote(amt) {
+    clearTimeout(qTimer); mq = null;
+    if (!(amt > 0)) return;
+    const seq = ++qSeq;
+    qTimer = setTimeout(async () => {
+      try {
+        const raw = (side === "buy" ? units(amt, 9) : units(amt, 6)).toString();
+        const r = await api(`/api/quote?side=${side}&amount=${raw}`);
+        if (seq !== qSeq) return;
+        mq = { out: Number(r.out) / (side === "buy" ? 1e6 : 1e9), fee: Number(r.fee) / 1e9, impact: r.impactPct || 0 };
+      } catch { mq = null; }
+      renderQuote(true);
+    }, 250);
+  }
+  function renderQuote(fromQuote) {
     const q = $("quoteOut"), amt = Number($("amtIn").value.replace(/,/g, ""));
+    if (pool?.meteora && fromQuote !== true) meteoraQuote(amt);
     $("tradeGo").disabled = !(amt > 0 && pool);
-    // Selling costs 15% and resets the streak: say so before they do it, every time.
+    // Selling costs the exit fee and resets the streak: say so before they do it, every time.
     disarm();
     const warn = $("streakWarn"), tax = (pool?.feeBps ?? S.sellTaxBps) / 100;
     warn.hidden = side !== "sell";
     if (!warn.hidden) {
-      const sol = pool ? Number(pool.solReserve) / 1e9 : 0, tok = pool ? Number(pool.tokenReserve) / 10 ** pool.decimals : 0;
-      const fee = amt > 0 && pool ? ((amt * sol) / (tok + amt)) * (tax / 100) : 0;
+      const sol = pool && !pool.meteora ? Number(pool.solReserve) / 1e9 : 0, tok = pool && !pool.meteora ? Number(pool.tokenReserve) / 10 ** pool.decimals : 0;
+      const fee = pool?.meteora ? (amt > 0 && mq ? mq.fee : 0) : amt > 0 && pool ? ((amt * sol) / (tok + amt)) * (tax / 100) : 0;
       const streak = W?.streakDays > 0 ? ` It also resets your ${W.streakDays} days of devotion${W.multiplier > 1 ? ` and your ${W.multiplier}× boost` : ""}.` : "";
       warn.innerHTML = `<b>Leaving costs ${tax}%.</b> ${fee > 0 ? `${fee.toFixed(4)} SOL of this sale` : "It"} goes to the members who stay. Stay, and you're the one getting paid.${esc(streak)}`;
     }
     if (!(amt > 0) || !pool) { q.innerHTML = ""; return; }
+    if (pool.meteora) {
+      if (!mq) { q.innerHTML = `<div class="muted">Getting a price…</div>`; return; }
+      q.innerHTML = side === "buy"
+        ? `<div class="n">~${compact(mq.out)} $${esc(S.ticker)}</div><div class="muted">Joining is free: the <span class="accent mono">${mq.fee.toFixed(4)} SOL</span> fee comes back to you in seconds.</div>${impact(mq.impact)}`
+        : `<div class="n">~${mq.out.toFixed(4)} SOL</div><div class="muted"><span class="accent mono">${mq.fee.toFixed(4)} SOL</span> of it goes to the cult.</div>${impact(mq.impact)}`;
+      return;
+    }
     const sol = Number(pool.solReserve) / 1e9, tok = Number(pool.tokenReserve) / 10 ** pool.decimals;
     if (side === "buy") {
       const imp = (amt / (sol + amt)) * 100;
@@ -441,7 +477,7 @@
   $("tradeX").addEventListener("click", () => $("tradeDlg").close());
   $("tradeDlg").addEventListener("click", (e) => { if (e.target === $("tradeDlg")) $("tradeDlg").close(); });
 
-  // Selling takes two presses: the first arms it ("Sell anyway, pay 15%"), the second sells.
+  // Selling takes two presses: the first arms it ("Leave anyway, pay 10%"), the second sells.
   let armed = false;
   function disarm() {
     armed = false;
@@ -465,7 +501,7 @@
     go.disabled = true;
     try {
       go.textContent = "Preparing…";
-      if (S.clientRpc) {
+      if (S.clientRpc && !pool?.meteora) {
         const fresh = await readPool();
         body.pool = { solReserve: fresh.solReserve.toString(), tokenReserve: fresh.tokenReserve.toString(), feeBps: fresh.feeBps };
         body.blockhash = (await rpc("getLatestBlockhash", [{ commitment: "confirmed" }])).value.blockhash;
@@ -483,7 +519,7 @@
           if (S.clientRpc) { const v = (await rpc("getSignatureStatuses", [[sig]])).value[0]; st = !v ? "sent" : v.err ? "failed" : ["confirmed", "finalized"].includes(v.confirmationStatus) ? "confirmed" : "sent"; }
           else st = (await api("/api/tx/" + sig)).status;
         } catch {}
-        if (st === "confirmed") { toast(side === "buy" ? "Welcome to the cult." : "You left. Your 15% just paid the members."); $("tradeDlg").close(); load(); return; }
+        if (st === "confirmed") { toast(side === "buy" ? (S.refunds ? "Welcome to the cult. Your buy fee is on its way back." : "Welcome to the cult.") : `You left. Your ${S.sellTaxBps / 100}% just paid the members.`); $("tradeDlg").close(); load(); return; }
         if (st === "failed") throw new Error("Solana refused the trade. Nothing was spent.");
       }
       toast("Not confirmed yet. Check your wallet's activity before trying again.");

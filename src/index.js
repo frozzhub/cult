@@ -7,7 +7,9 @@
 //
 // DEMO="1" serves generated sample data. With DEMO off and no MINT, the site shows a pre-launch state.
 import { config } from "./config.js";
-import { handleWebhook, tick } from "./indexer.js";
+import { handleWebhook, tick, cachedPrices } from "./indexer.js";
+import { watch } from "./meteora.js";
+import { handleMeteoraTrade } from "./meteora-trade.js";
 import { liveState, liveWallet, liveChart, RANGES, liveCumulative, cumulativeSeries } from "./live.js";
 import { handleTrade, tradeReady, poolAccounts } from "./trade.js";
 import { handleProfiles, syncX } from "./profiles.js";
@@ -26,7 +28,10 @@ export default {
       if (url.pathname === "/api/state") return json(await state(demo ? { ...env, DEMO: "1" } : env));
       if (url.pathname === "/api/chart") return json(await chart(demo ? { ...env, DEMO: "1" } : env, url.searchParams.get("range")));
       if (url.pathname === "/api/payouts/chart") return json(await payoutsChart(demo ? { ...env, DEMO: "1" } : env));
-      if (/^\/api\/(pool|trade|send|tx\/)/.test(url.pathname)) return await handleTrade(req, env, config(env), url.pathname);
+      if (/^\/api\/(pool|quote|trade|send|tx\/)/.test(url.pathname)) {
+        const cfg = config(env);
+        return cfg.venue === "meteora" ? await handleMeteoraTrade(req, env, cfg, url.pathname, url) : await handleTrade(req, env, cfg, url.pathname);
+      }
       const m = url.pathname.match(/^\/api\/wallet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (m) return json(await walletInfo(demo ? { ...env, DEMO: "1" } : env, m[1]));
     } catch (e) {
@@ -46,6 +51,9 @@ export default {
   },
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(tick(env).then((r) => console.log("tick", JSON.stringify(r))));
+    // Meteora launch: watch the pools for the rest of this minute and refund every buy within seconds.
+    const cfg = config(env);
+    if (cfg.venue === "meteora" && env.DB) ctx.waitUntil(cachedPrices(env, cfg).then((p) => watch(env, cfg, { solUsd: p.sol })).then((r) => console.log("watch", JSON.stringify(r))).catch((e) => console.error("watch", e.message)));
     // Keep linked profiles matching X (each one about once a day).
     if (env.DB) ctx.waitUntil(syncX(env).then((r) => r.due && console.log("x sync", JSON.stringify(r))).catch((e) => console.error("x sync", e.message)));
   },
@@ -60,7 +68,7 @@ function nextDropAt(cfg, now = Date.now()) {
 }
 
 // Only what the page needs from config (never the indexer settings).
-const publicCfg = (c) => ({ cluster: c.cluster, clientRpc: c.clientRpc, ticker: c.ticker, mint: c.mint, sellTaxBps: c.sellTaxBps, dropMinutes: c.dropMinutes, minHoldUsd: c.minHoldUsd, streaks: c.streaks, xHandle: c.xHandle, demo: c.demo, trade: tradeReady(c), accounts: tradeReady(c) ? poolAccounts(c) : null });
+const publicCfg = (c) => ({ cluster: c.cluster, clientRpc: c.clientRpc, ticker: c.ticker, mint: c.mint, sellTaxBps: c.venue === "meteora" ? c.feeBps : c.sellTaxBps, venue: c.venue, feeBps: c.feeBps, refunds: c.venue === "meteora" && c.refunds, pool: c.venue === "meteora" ? c.pool : "", dropMinutes: c.dropMinutes, minHoldUsd: c.minHoldUsd, streaks: c.streaks, xHandle: c.xHandle, demo: c.demo, trade: c.venue === "meteora" ? !!(c.mint && c.pool) : tradeReady(c), accounts: c.venue !== "meteora" && tradeReady(c) ? poolAccounts(c) : null });
 
 async function state(env) {
   const cfg = config(env);

@@ -26,6 +26,17 @@ export async function liveState(env, cfg) {
       LEFT JOIN holders h ON h.wallet = p.wallet LEFT JOIN sellers s ON s.wallet = p.wallet
       WHERE p.micro > 0 GROUP BY p.wallet ORDER BY micro DESC LIMIT 25`),
   ]);
+  // Meteora launch: what buyers got back, and the pot net of Meteora's cut of those refunds.
+  let refunded = { usd: 0, n: 0 }, pendLamports = pend.results[0].f;
+  if (cfg.venue === "meteora") {
+    const [all, since] = await db.batch([
+      db.prepare("SELECT COALESCE(SUM(r.lamports / 1e9 * t.sol_usd), 0) AS usd, COUNT(*) AS n FROM refunds r LEFT JOIN trades t ON t.sig = r.sig WHERE r.status = 'confirmed'"),
+      db.prepare("SELECT COALESCE(SUM(lamports), 0) AS l FROM refunds WHERE at >= COALESCE((SELECT MAX(at) FROM drops WHERE status NOT IN ('snapshot', 'swap')), 0)"),
+    ]);
+    refunded = { usd: all.results[0].usd, n: all.results[0].n };
+    const keep = (10_000 - cfg.protocolBps) / 10_000;
+    pendLamports = Math.max(0, pendLamports * keep - since.results[0].l * (1 - keep));
+  }
   // Drops are numbered 1, 2, 3... in the order they were paid.
   const doneCount = totals.results[0].drops;
   const shown = drops.results;
@@ -37,9 +48,9 @@ export async function liveState(env, cfg) {
     profiles,
     price: token,
     eligibleSupply: last.results[0]?.weight_total || 0,
-    totals: { paidUsdc: totals.results[0].paid / 1e6, drops: doneCount, holders: last.results[0]?.holders || 0, volumeUsd: vol.results[0].v, trades: vol.results[0].n },
+    totals: { paidUsdc: totals.results[0].paid / 1e6, drops: doneCount, holders: last.results[0]?.holders || 0, volumeUsd: vol.results[0].v, trades: vol.results[0].n, refundedUsd: refunded.usd, refunds: refunded.n },
     avgDrop24: avg.results[0].a / 1e6,
-    pending: usd(pend.results[0].f, sol),
+    pending: usd(pendLamports, sol),
     wall: {
       top: top.results.map((r) => ({ wallet: r.wallet, paidUsdc: r.paid_usdc, sells: r.sells, at: new Date(r.last_at).toISOString() })),
       latest: latest.results.map((r) => ({ wallet: r.wallet, soldUsd: usd(r.sol_out + r.fee_lamports, r.sol_usd), paidUsdc: usd(r.fee_lamports, r.sol_usd), at: new Date(r.at).toISOString() })),

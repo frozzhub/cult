@@ -2,6 +2,30 @@
 
 > Renamed from $PAPER on 2026-11-15. The repo folder and the devnet Worker URL keep the old `paper-hands` name.
 
+## Now on Meteora (2026-11-21)
+
+The custom pool + transfer hook (below, kept for reference) couldn't do what we wanted *and* show up on terminals, so $CULT launches on **Meteora's Dynamic Bonding Curve** instead (Axiom, GMGN, Jupiter, Dexscreener all see it).
+
+- **10% fee on every buy and sell, in SOL.** Meteora keeps 20% of each fee; the treasury (`PAYOUT_WALLET`, the curve's partner) earns the other 80%.
+- **Buys are refunded in full.** The Worker watches the pool every 3 seconds (`src/meteora.js`, inside each minute's cron) and sends every buyer their whole 10% back, with a memo. Measured on devnet: refund lands ~5s after the buy, before and after graduation. Each refund is saved before it's sent and only re-sent once the old one can't land, so nobody is paid twice (tested).
+- **Sells fund the airdrop.** Each 10-minute round claims the treasury's fees, swaps what's spare to USDC and pays members (same engine as before).
+- **The pot = 8% of sell volume − 2% of buy volume** (the full refund costs the treasury Meteora's 2% cut). Heavy buying with few sells can make a round's pot zero; refunds always come first.
+- **Graduation:** at ~86 SOL raised Meteora's keeper moves the coin to a DAMM v2 pool with the same 10% SOL fee. 100% of that liquidity is permanently locked to the treasury (it earns the pool's fees, it can never be pulled). The Worker finds the new pool by itself and keeps refunding and claiming there (tested on devnet).
+- **Site:** Buy/Sell panel kept (quotes + transactions from the Worker: Jupiter on mainnet, the curve/DAMM pool directly as a fallback and on devnet), sell warning "Leave anyway, pay 10%", "buy fees refunded" stat.
+
+### Going live on mainnet
+1. Fresh treasury keypair (`solana-keygen new -o program-keys/mainnet-treasury.json`), funded with ~1–2 SOL: launch costs + the refund float (`REFUND_FLOAT_LAMPORTS`, 0.5 SOL) so the first buys are refunded before any fees are claimed.
+2. `node scripts/launch-meteora.mjs --cluster mainnet --treasury program-keys/mainnet-treasury.json --uri https://cults.bid/token.json --rpc <helius url>` (defaults: starts at 30 SOL mcap, graduates at 400 SOL ≈ 86 SOL raised). It prints MINT, POOL_ACCOUNT, VAULTS.
+3. Put those plus PAYOUT_WALLET in `wrangler.jsonc`, create the D1 database + `migrations apply --remote`, set secrets `HELIUS_KEY` and `PAYOUT_SECRET_KEY`, `DEMO="0"`.
+4. Deploy with `DRY_RUN="1"`, check the watcher sees trades, then `DRY_RUN="0"`. Do one small real buy and sell and watch the refund land.
+
+```
+npm test                                   # 48 Worker tests (incl. real devnet Meteora transactions)
+node scripts/meteora-trade.mjs --keypair program-keys/devnet-trader.json --buy 0.01   # devnet curve
+node scripts/damm-trade.mjs --info                                                    # devnet graduated pool
+```
+
+## Before Meteora (the custom pool)
 
 0% buy tax, 15% sell tax, all of it airdropped to holders as USDC every 10 minutes (`DROP_MINUTES`, cron every minute). Hold 7 days without selling for a 1.25× share, 30 days for 1.5×.
 
