@@ -1,27 +1,29 @@
-//! $PAPER transfer hook: keeps every sell going through the $PAPER pool.
+//! $CULT transfer hook: keeps every sell going through the $CULT pool.
 //!
-//! Token-2022 calls this on every $PAPER transfer. A transfer is allowed when the receiving token account
-//! is owned by:
-//!   - the $PAPER pool (PDA ["pool", mint] of the paper-pool program), or
-//!   - a normal wallet (an address on the ed25519 curve, which is what every user and CEX wallet is).
-//! Anything else (a Raydium, Meteora or Orca vault, all owned by program addresses) is refused, so nobody
-//! can open a second pool that skips the 15% sell fee.
+//! Token-2022 calls this on every $CULT transfer. A transfer is allowed when
+//!   - the authority that moves the tokens is a normal wallet (on the ed25519 curve) or the pool PDA, and
+//!   - the receiving token account is owned by the pool (PDA ["pool", mint] of the paper-pool program), or
+//!     by a normal wallet AND is an account whose owner can never change (ImmutableOwner, which every
+//!     associated token account has).
+//! Anything else (a Raydium, Meteora or Orca vault, all owned by program addresses; an escrow that takes
+//! over a plain token account) is refused, so nobody can open a second pool that skips the 15% sell fee.
 //!
-//! Side effect: $PAPER can't be sent to program-owned wallets either (for example a Squads multisig).
+//! Side effect: $CULT can't be sent to program-owned wallets either (for example a Squads multisig), and
+//! can't be moved by a program address acting as delegate.
 //!
 //! Build: `npm run build:programs`. Tests: programs-tests/ (LiteSVM, `npm run test:programs`).
 use anchor_lang::prelude::*;
-use anchor_spl::token_2022::spl_token_2022::extension::{transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions};
+use anchor_spl::token_2022::spl_token_2022::extension::{immutable_owner::ImmutableOwner, transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions};
 use anchor_spl::token_2022::spl_token_2022::state::Account as SplAccount;
 use anchor_spl::token_interface::{Mint, TokenAccount};
 use solana_curve25519::edwards::{validate_edwards, PodEdwardsPoint};
 use spl_tlv_account_resolution::state::ExtraAccountMetaList;
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
-declare_id!("794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2");
+declare_id!("521AkYhN31VTGPLn75NgeWievYHZoxPwREihCCsppxnF");
 
 /// The paper-pool program (programs/paper-pool). Keep in sync with its declare_id!.
-pub const POOL_PROGRAM: Pubkey = pubkey!("J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu");
+pub const POOL_PROGRAM: Pubkey = pubkey!("5xsG4XWGVdazEZSDkjFWu25gCyeCnTuxuPxbmJ1xmA4D");
 
 #[program]
 pub mod paper_hook {
@@ -42,14 +44,28 @@ pub mod paper_hook {
         let ext = state.get_extension::<TransferHookAccount>()?;
         require!(bool::from(ext.transferring), HookError::NotTransferring);
 
-        let to = ctx.accounts.destination_token.owner;
         let (pool, _) = Pubkey::find_program_address(&[b"pool", ctx.accounts.mint.key().as_ref()], &POOL_PROGRAM);
+        // Nobody but the pool may move tokens as a program address (a pool, escrow or multisig vault).
+        let authority = ctx.accounts.owner.key();
+        require!(authority == pool || on_curve(&authority), HookError::OtherPool);
+
+        let to = ctx.accounts.destination_token.owner;
         if to == pool {
             return Ok(());
         }
-        require!(validate_edwards(&PodEdwardsPoint(to.to_bytes())), HookError::OtherPool);
+        require!(on_curve(&to), HookError::OtherPool);
+        // A token account whose owner can be changed later could be handed to a program address with no
+        // transfer and so no hook call. Associated accounts always carry ImmutableOwner; refuse the rest.
+        let dest = ctx.accounts.destination_token.to_account_info();
+        let dest_data = dest.try_borrow_data()?;
+        let dest_state = StateWithExtensions::<SplAccount>::unpack(&dest_data)?;
+        require!(dest_state.get_extension::<ImmutableOwner>().is_ok(), HookError::OtherPool);
         Ok(())
     }
+}
+
+fn on_curve(key: &Pubkey) -> bool {
+    validate_edwards(&PodEdwardsPoint(key.to_bytes()))
 }
 
 #[derive(Accounts)]

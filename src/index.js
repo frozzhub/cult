@@ -1,36 +1,35 @@
-// $PAPER Worker: serves the site, a small read-only API, the Helius webhook and the airdrop cron.
+// $CULT Worker: serves the site, a small read-only API, the Helius webhook and the airdrop cron.
 //   GET  /api/state           -> totals, next airdrop, Wall of Paper Hands, airdrop history
 //   GET  /api/wallet/:address -> one holder's balance, streak, multiplier and USDC received
-//   POST /api/hook            -> Helius webhook: records sells (needs HELIUS_WEBHOOK_SECRET)
-//   /api/pool, /api/trade, /api/send, /api/tx/:sig -> buy/sell against the pool (trade.js)
-//   cron */5 * * * *          -> moves the current airdrop forward (see indexer.js)
+//   POST /api/hook            -> Helius webhook: records buys and sells, refunds buyers (needs HELIUS_WEBHOOK_SECRET)
+//   /api/quote, /api/trade, /api/tx/:sig, /api/refund/hint -> trading through Jupiter (trade.js)
+//   cron every minute         -> refunds, sweeps, the curve, then moves the current airdrop forward (see indexer.js)
+// The contract the page codes against is docs/API.md.
 //
 // DEMO="1" serves generated sample data. With DEMO off and no MINT, the site shows a pre-launch state.
 import { config } from "./config.js";
-import { handleWebhook, tick, cachedPrices } from "./indexer.js";
-import { watch } from "./meteora.js";
-import { handleMeteoraTrade } from "./meteora-trade.js";
-import { liveState, liveWallet, liveChart, RANGES, liveCumulative, cumulativeSeries } from "./live.js";
-import { handleTrade, tradeReady, poolAccounts } from "./trade.js";
+import { handleWebhook, tick } from "./indexer.js";
+import { liveState, liveWallet, liveChart, RANGES } from "./live.js";
+import { handleTrade, tradeReady } from "./trade.js";
+import { publicStage } from "./dbc.js";
 import { handleProfiles, syncX } from "./profiles.js";
 
 const HOUR = 3600_000;
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     try {
-      if (url.pathname === "/api/hook" && req.method === "POST") return await handleWebhook(req, env);
+      if (url.pathname === "/api/hook" && req.method === "POST") return await handleWebhook(req, env, ctx);
       if (/^\/api\/(auth\/|me$|x\/|profile\/)/.test(url.pathname)) return await handleProfiles(req, env, url);
       // ?demo=1 previews the site with sample data, devnet only (never next to real mainnet numbers).
       const demo = url.searchParams.get("demo") === "1" && env.CLUSTER === "devnet";
       if (url.pathname === "/api/state") return json(await state(demo ? { ...env, DEMO: "1" } : env));
       if (url.pathname === "/api/chart") return json(await chart(demo ? { ...env, DEMO: "1" } : env, url.searchParams.get("range")));
-      if (url.pathname === "/api/payouts/chart") return json(await payoutsChart(demo ? { ...env, DEMO: "1" } : env));
-      if (/^\/api\/(pool|quote|trade|send|tx\/)/.test(url.pathname)) {
-        const cfg = config(env);
-        return cfg.venue === "meteora" ? await handleMeteoraTrade(req, env, cfg, url.pathname, url) : await handleTrade(req, env, cfg, url.pathname);
+      if (/^\/api\/(quote|trade|refund\/|tx\/)/.test(url.pathname)) {
+        if (await rateLimited(req, env, url.pathname)) return json({ error: "Too many requests. Wait a minute and try again." }, 429);
+        return await handleTrade(req, env, config(env), url.pathname, ctx);
       }
       const m = url.pathname.match(/^\/api\/wallet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (m) return json(await walletInfo(demo ? { ...env, DEMO: "1" } : env, m[1]));
@@ -51,13 +50,20 @@ export default {
   },
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(tick(env).then((r) => console.log("tick", JSON.stringify(r))));
-    // Meteora launch: watch the pools for the rest of this minute and refund every buy within seconds.
-    const cfg = config(env);
-    if (cfg.venue === "meteora" && env.DB) ctx.waitUntil(cachedPrices(env, cfg).then((p) => watch(env, cfg, { solUsd: p.sol })).then((r) => console.log("watch", JSON.stringify(r))).catch((e) => console.error("watch", e.message)));
     // Keep linked profiles matching X (each one about once a day).
     if (env.DB) ctx.waitUntil(syncX(env).then((r) => r.due && console.log("x sync", JSON.stringify(r))).catch((e) => console.error("x sync", e.message)));
   },
 };
+
+// Cloudflare rate limit bindings (wrangler.jsonc): RL_TRADE for building trades and refund hints, RL_READ for quotes and
+// status reads, counted per caller address. A missing binding (local, devnet) or a failing one lets the request
+// through: this protects the RPC quota, it is not what keeps money safe.
+async function rateLimited(req, env, path) {
+  const rl = /^\/api\/(trade|refund)/.test(path) ? env.RL_TRADE : env.RL_READ;
+  if (!rl) return false;
+  try { return !(await rl.limit({ key: (req.headers.get("cf-connecting-ip") || "unknown") + path.split("/")[2] })).success; }
+  catch { return false; }
+}
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -68,13 +74,13 @@ function nextDropAt(cfg, now = Date.now()) {
 }
 
 // Only what the page needs from config (never the indexer settings).
-const publicCfg = (c) => ({ cluster: c.cluster, clientRpc: c.clientRpc, ticker: c.ticker, mint: c.mint, sellTaxBps: c.venue === "meteora" ? c.feeBps : c.sellTaxBps, venue: c.venue, feeBps: c.feeBps, refunds: c.venue === "meteora" && c.refunds, pool: c.venue === "meteora" ? c.pool : "", dropMinutes: c.dropMinutes, minHoldUsd: c.minHoldUsd, streaks: c.streaks, xHandle: c.xHandle, demo: c.demo, trade: c.venue === "meteora" ? !!(c.mint && c.pool) : tradeReady(c), accounts: c.venue !== "meteora" && tradeReady(c) ? poolAccounts(c) : null });
+const publicCfg = (c) => ({ cluster: c.cluster, ticker: c.ticker, mint: c.mint, sellTaxBps: c.sellTaxBps, dropMinutes: c.dropMinutes, minHoldUsd: c.minHoldUsd, streaks: c.streaks, xHandle: c.xHandle, demo: c.demo, trade: tradeReady(c) });
 
 async function state(env) {
   const cfg = config(env);
   const base = { ...publicCfg(cfg), nextDropAt: nextDropAt(cfg) };
-  if (cfg.demo) return { ...base, ...demoState(cfg.dropMinutes * 60_000) };
-  if (cfg.mint && env.DB) return { ...base, ...(await liveState(env, cfg)) };
+  if (cfg.demo) return { ...base, ...demoState(cfg.dropMinutes * 60_000, cfg.sellTaxBps), pool: { stage: "curve", progressBps: 3400, raisedSol: 29.2, thresholdSol: 86 } };
+  if (cfg.mint && env.DB) return { ...base, ...(await liveState(env, cfg)), pool: await publicStage(env.DB) };
   return { ...base, live: false };
 }
 
@@ -84,13 +90,6 @@ async function chart(env, range) {
   if (cfg.demo) return demoChart(range);
   if (cfg.mint && env.DB) return liveChart(env, cfg, range);
   return { range, points: [] };
-}
-
-async function payoutsChart(env) {
-  const cfg = config(env);
-  if (cfg.demo) return demoCumulative(cfg.dropMinutes * 60_000);
-  if (cfg.mint && env.DB) return liveCumulative(env);
-  return { points: [], total: 0, rounds: 0 };
 }
 
 async function walletInfo(env, address) {
@@ -124,7 +123,8 @@ function demoDrop(k, P) {
   return { n: k - Math.floor(DEMO_LAUNCH / P), at: new Date(k * P).toISOString(), usdc, holders, tx: addr(r).slice(0, 44) + addr(r).slice(0, 44) };
 }
 
-function demoState(P = HOUR) {
+function demoState(P = HOUR, taxBps = 1000) {
+  const tax = Math.max(taxBps, 1) / 10_000; // never 0: the volume below divides by it
   const now = Date.now();
   const cur = Math.floor(now / P);
   const first = Math.floor(DEMO_LAUNCH / P);
@@ -141,7 +141,7 @@ function demoState(P = HOUR) {
   for (let i = 0; i < 30; i++) {
     t -= (60 + r() * 240) * 1000;
     const soldUsd = Math.round(80 + r() ** 2 * 4200);
-    latest.push({ wallet: addr(r), soldUsd, paidUsdc: round2(soldUsd * 0.15), at: new Date(t).toISOString() });
+    latest.push({ wallet: addr(r), soldUsd, paidUsdc: round2(soldUsd * tax), at: new Date(t).toISOString() });
   }
   // The pot for the coming drop fills in step with the round, so it ends where that drop lands.
   const pending = round2(demoDrop(cur + 1, P).usdc * ((now - cur * P) / P));
@@ -158,8 +158,8 @@ function demoState(P = HOUR) {
     price: DEMO_PRICE,
     supply: DEMO_SUPPLY,
     eligibleSupply: DEMO_ELIGIBLE,
-    // Volume: sells pay 15%, so sells ~= paid / 0.15; buys run a bit ahead of sells.
-    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / 0.08) * 2.1), refundedUsd: round2((paid / 0.08) * 1.1 * 0.1), refunds: 3184 },
+    // Volume: sells pay the tax, so sells ~= paid / tax; buys run a bit ahead of sells.
+    totals: { paidUsdc: round2(paid), drops: cur - first, holders: drops[0].holders, volumeUsd: round2((paid / tax) * 2.1) },
     avgDrop24: round2(day / perDay),
     pending,
     wall: { top, latest },
@@ -177,7 +177,7 @@ function demoWallet(cfg, address) {
   const usd = balance * DEMO_PRICE;
   const eligible = usd >= cfg.minHoldUsd;
   const share = eligible ? (balance * mult) / DEMO_ELIGIBLE : 0;
-  const st = demoState(cfg.dropMinutes * 60_000);
+  const st = demoState(cfg.dropMinutes * 60_000, cfg.sellTaxBps);
   const received = round2(st.drops.slice(0, Math.min(48, streakDays * 24 || 6)).reduce((a, d) => a + d.usdc * share, 0) * (1 + streakDays / 6));
   return {
     address, live: true, demo: true,
@@ -209,12 +209,4 @@ function demoMembers(paid, rounds) {
     const share = r() ** 2.6 * 0.03; // a few whales, a long tail
     return { wallet: addr(r), receivedUsdc: round2(paid * share), rounds: Math.max(1, Math.min(rounds, Math.round(devotionDays * 144 * (0.7 + r() * 0.3)))), balance: Math.round(200_000 + share * 400_000_000), devotionDays, multiplier: devotionDays >= 30 ? 1.5 : devotionDays >= 7 ? 1.25 : 1 };
   }).sort((a, b) => b.receivedUsdc - a.receivedUsdc);
-}
-// Sample running total: every sample drop since the sample launch, the same ones the totals add up.
-function demoCumulative(P = HOUR) {
-  const cur = Math.floor(Date.now() / P), first = Math.floor(DEMO_LAUNCH / P);
-  const drops = [];
-  for (let k = first + 1; k <= cur; k++) { const d = demoDrop(k, P); drops.push({ at: Date.parse(d.at), usdc: d.usdc }); }
-  const points = cumulativeSeries(drops);
-  return { points, total: Math.round((points.at(-1)?.[1] || 0) * 100) / 100, rounds: drops.length };
 }

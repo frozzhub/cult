@@ -1,216 +1,161 @@
 //! paper-pool + paper-hook against the real compiled programs (../target/deploy/*.so) in LiteSVM.
-//! Same checks as test/programs.e2e.mjs: launch, buy (no fee), sell (15% to payout), slippage guard,
-//! wallet-to-wallet transfers allowed, transfers into another program's account refused.
-use litesvm::LiteSVM;
-use sha2::{Digest, Sha256};
+//! Launch (virtual seed, authorities revoked), buy (fee 0 and 100 bps), sell (15% to payout), the sell guard,
+//! refusals at initialize, slippage, wallet-to-wallet transfers allowed, transfers into another program's
+//! account refused. The shared launch lives in common/mod.rs.
+mod common;
+use common::*;
 use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
-use solana_program_pack::Pack;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
-use spl_token_2022_interface::{
-    extension::{transfer_hook, ExtensionType, StateWithExtensions},
-    instruction as tok,
-    state::{Account as TokenAccount, Mint},
-    ID as TOKEN_2022,
-};
-
-const POOL: &str = "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu";
-const HOOK: &str = "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2";
-const ATA_PROGRAM: &str = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
-const SYSTEM: Address = Address::new_from_array([0; 32]);
-const DECIMALS: u8 = 6;
-const SUPPLY: u64 = 1_000_000_000 * 1_000_000;
-const SOL: u64 = 1_000_000_000;
-const POOL_SOL: u64 = 20 * SOL;
-
-fn addr(s: &str) -> Address { s.parse().unwrap() }
-fn disc(name: &str) -> [u8; 8] { Sha256::digest(format!("global:{name}")).as_slice()[..8].try_into().unwrap() }
-fn ata(owner: &Address, mint: &Address) -> Address {
-    Address::find_program_address(&[owner.as_ref(), TOKEN_2022.as_ref(), mint.as_ref()], &addr(ATA_PROGRAM)).0
-}
-fn create_ata(payer: &Address, owner: &Address, mint: &Address) -> Instruction {
-    Instruction {
-        program_id: addr(ATA_PROGRAM),
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new(ata(owner, mint), false),
-            AccountMeta::new_readonly(*owner, false),
-            AccountMeta::new_readonly(*mint, false),
-            AccountMeta::new_readonly(SYSTEM, false),
-            AccountMeta::new_readonly(TOKEN_2022, false),
-        ],
-        data: vec![1], // CreateIdempotent
-    }
-}
-
-struct World {
-    svm: LiteSVM,
-    creator: Keypair,
-    payout: Keypair,
-    mint: Address,
-    pool: Address,
-    vault: Address,
-    metas: Address,
-}
-
-impl World {
-    fn send(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> Result<(), String> {
-        let tx = Transaction::new_signed_with_payer(ixs, Some(&signers[0].pubkey()), signers, self.svm.latest_blockhash());
-        let r = self.svm.send_transaction(tx).map(|_| ()).map_err(|e| format!("{:?} {:?}", e.err, e.meta.logs));
-        self.svm.expire_blockhash();
-        r
-    }
-    fn lamports(&self, a: &Address) -> u64 { self.svm.get_account(a).map(|x| x.lamports).unwrap_or(0) }
-    fn tokens(&self, owner: &Address) -> u64 {
-        let acc = self.svm.get_account(&ata(owner, &self.mint)).expect("token account");
-        StateWithExtensions::<TokenAccount>::unpack(&acc.data).unwrap().base.amount
-    }
-    // Pool account: 8 disc | mint | vault | payout | fee_bps u16 | sol_reserve u64 | bump
-    fn sol_reserve(&self) -> u64 {
-        let d = self.svm.get_account(&self.pool).unwrap().data;
-        u64::from_le_bytes(d[106..114].try_into().unwrap())
-    }
-    fn hook_accounts(&self) -> [AccountMeta; 2] { [AccountMeta::new_readonly(addr(HOOK), false), AccountMeta::new_readonly(self.metas, false)] }
-
-    fn trade(&mut self, user: &Keypair, buy: bool, amount: u64, min_out: u64) -> Result<(), String> {
-        let mut data = disc(if buy { "buy" } else { "sell" }).to_vec();
-        data.extend_from_slice(&amount.to_le_bytes());
-        data.extend_from_slice(&min_out.to_le_bytes());
-        let mut accounts = vec![
-            AccountMeta::new(user.pubkey(), true),
-            AccountMeta::new_readonly(self.mint, false),
-            AccountMeta::new(self.pool, false),
-            AccountMeta::new(self.vault, false),
-            AccountMeta::new(ata(&user.pubkey(), &self.mint), false),
-            AccountMeta::new(self.payout.pubkey(), false),
-            AccountMeta::new_readonly(TOKEN_2022, false),
-            AccountMeta::new_readonly(addr(ATA_PROGRAM), false),
-            AccountMeta::new_readonly(SYSTEM, false),
-        ];
-        accounts.extend(self.hook_accounts());
-        self.send(&[Instruction { program_id: addr(POOL), accounts, data }], &[user])
-    }
-
-    fn transfer(&mut self, from: &Keypair, to_owner: &Address, amount: u64) -> Result<(), String> {
-        let mut ix = tok::transfer_checked(&TOKEN_2022, &ata(&from.pubkey(), &self.mint), &self.mint, &ata(to_owner, &self.mint), &from.pubkey(), &[], amount, DECIMALS).unwrap();
-        ix.accounts.extend([AccountMeta::new_readonly(self.metas, false), AccountMeta::new_readonly(addr(HOOK), false)]);
-        let create = create_ata(&from.pubkey(), to_owner, &self.mint);
-        self.send(&[create, ix], &[from])
-    }
-}
-
-/// What scripts/launch.mjs does: mint with transfer hook, hook setup, mint supply, seed pool, revoke.
-fn launch() -> World {
-    let mut svm = LiteSVM::new();
-    svm.add_program_from_file(addr(HOOK), "../target/deploy/paper_hook.so").unwrap();
-    svm.add_program_from_file(addr(POOL), "../target/deploy/paper_pool.so").unwrap();
-    let creator = Keypair::new();
-    let payout = Keypair::new();
-    svm.airdrop(&creator.pubkey(), 100 * SOL).unwrap();
-    svm.airdrop(&payout.pubkey(), SOL).unwrap();
-    let mint_kp = Keypair::new();
-    let mint = mint_kp.pubkey();
-    let pool = Address::find_program_address(&[b"pool", mint.as_ref()], &addr(POOL)).0;
-    let metas = Address::find_program_address(&[b"extra-account-metas", mint.as_ref()], &addr(HOOK)).0;
-    let vault = ata(&pool, &mint);
-    let mut w = World { svm, creator, payout, mint, pool, vault, metas };
-    let c = w.creator.pubkey();
-
-    let len = ExtensionType::try_calculate_account_len::<Mint>(&[ExtensionType::TransferHook]).unwrap();
-    let rent = w.svm.minimum_balance_for_rent_exemption(len);
-    let creator = w.creator.insecure_clone();
-    w.send(&[
-        solana_system_interface::instruction::create_account(&c, &mint, rent, len as u64, &TOKEN_2022),
-        transfer_hook::instruction::initialize(&TOKEN_2022, &mint, Some(c), Some(addr(HOOK))).unwrap(),
-        tok::initialize_mint2(&TOKEN_2022, &mint, &c, None, DECIMALS).unwrap(),
-    ], &[&creator, &mint_kp]).expect("mint");
-
-    w.send(&[Instruction {
-        program_id: addr(HOOK),
-        accounts: vec![AccountMeta::new(c, true), AccountMeta::new(metas, false), AccountMeta::new_readonly(mint, false), AccountMeta::new_readonly(SYSTEM, false)],
-        data: disc("initialize_extra_account_meta_list").to_vec(),
-    }], &[&creator]).expect("hook setup");
-
-    w.send(&[create_ata(&c, &c, &mint), tok::mint_to(&TOKEN_2022, &mint, &ata(&c, &mint), &c, &[], SUPPLY).unwrap()], &[&creator]).expect("mint supply");
-
-    let mut data = disc("initialize").to_vec();
-    data.extend_from_slice(&1500u16.to_le_bytes());
-    data.extend_from_slice(&SUPPLY.to_le_bytes());
-    data.extend_from_slice(&POOL_SOL.to_le_bytes());
-    let mut accounts = vec![
-        AccountMeta::new(c, true),
-        AccountMeta::new_readonly(mint, false),
-        AccountMeta::new(pool, false),
-        AccountMeta::new(vault, false),
-        AccountMeta::new(ata(&c, &mint), false),
-        AccountMeta::new_readonly(w.payout.pubkey(), false),
-        AccountMeta::new_readonly(TOKEN_2022, false),
-        AccountMeta::new_readonly(addr(ATA_PROGRAM), false),
-        AccountMeta::new_readonly(SYSTEM, false),
-    ];
-    accounts.extend(w.hook_accounts());
-    w.send(&[Instruction { program_id: addr(POOL), accounts, data }], &[&creator]).expect("pool init");
-
-    w.send(&[tok::set_authority(&TOKEN_2022, &mint, None, tok::AuthorityType::MintTokens, &c, &[]).unwrap()], &[&creator]).expect("revoke");
-    w
-}
-
-fn quote(amount_in: u64, reserve_in: u64, reserve_out: u64) -> u64 {
-    (amount_in as u128 * reserve_out as u128 / (reserve_in as u128 + amount_in as u128)) as u64
-}
 
 #[test]
-fn launch_puts_everything_in_the_pool_and_revokes_minting() {
-    let w = launch();
+fn launch_puts_every_token_in_the_pool_with_zero_real_sol_and_revokes_both_authorities() {
+    let w = launch(Opts::default());
     assert_eq!(w.tokens(&w.pool), SUPPLY);
-    assert_eq!(w.sol_reserve(), POOL_SOL);
-    let m = w.svm.get_account(&w.mint).unwrap();
-    assert!(StateWithExtensions::<Mint>::unpack(&m.data).unwrap().base.mint_authority.is_none());
-    assert_eq!(Mint::LEN, 82); // sanity: Pack is the classic layout
+    assert_eq!(w.sol_reserve(), 30 * SOL, "curve starts at the virtual seed");
+    assert_eq!(w.virtual_sol(), 30 * SOL);
+    assert_eq!(w.fee_bps(), 1500);
+    assert_eq!(w.buy_fee_bps(), 0);
+    assert_eq!(w.real_sol(), 0, "no SOL goes in at launch");
+    assert_eq!(w.lamports(&w.pool), w.pool_rent(), "the pool holds only its rent");
+    assert_eq!(w.mint_state(), (None, None), "mint authority and transfer-hook authority are both gone");
+    assert_eq!(w.tokens(&w.creator.pubkey()), 0, "the creator keeps nothing");
 }
 
 #[test]
-fn buy_has_no_fee_and_sell_pays_15_percent_to_payout() {
-    let mut w = launch();
+fn pool_layout_keeps_the_first_offsets_and_appends_the_new_fields() {
+    let w = launch(Opts { buy_fee_bps: 250, virtual_sol: 12_345_678_901, fee_bps: 1234, ..Opts::default() });
+    let d = w.pool_data();
+    assert_eq!(d.len(), POOL_LEN);
+    assert_eq!(&d[8..40], w.mint.as_ref());
+    assert_eq!(&d[40..72], w.vault.as_ref());
+    assert_eq!(&d[72..104], w.payout.pubkey().as_ref());
+    assert_eq!(u16::from_le_bytes(d[104..106].try_into().unwrap()), 1234);
+    assert_eq!(u64::from_le_bytes(d[106..114].try_into().unwrap()), 12_345_678_901);
+    assert_eq!(d[114], Address::find_program_address(&[b"pool", w.mint.as_ref()], &addr(POOL)).1);
+    assert_eq!(u64::from_le_bytes(d[115..123].try_into().unwrap()), 12_345_678_901);
+    assert_eq!(u16::from_le_bytes(d[123..125].try_into().unwrap()), 250);
+}
+
+#[test]
+fn initialize_refuses_bad_settings() {
+    let e = try_launch(Opts { fee_bps: 2001, ..Opts::default() }).err().expect("sell fee over 20%");
+    assert_eq!(custom_code(&e), Some(ERR_FEE_TOO_HIGH), "{e}");
+    let e = try_launch(Opts { buy_fee_bps: 501, ..Opts::default() }).err().expect("buy fee over 5%");
+    assert_eq!(custom_code(&e), Some(ERR_BUY_FEE_TOO_HIGH), "{e}");
+    let e = try_launch(Opts { virtual_sol: 0, ..Opts::default() }).err().expect("no virtual SOL");
+    assert_eq!(custom_code(&e), Some(ERR_ZERO), "{e}");
+    // The limits themselves are allowed.
+    assert!(try_launch(Opts { fee_bps: 2000, buy_fee_bps: 500, ..Opts::default() }).is_ok());
+}
+
+#[test]
+fn buy_has_no_fee_by_default_and_sell_pays_15_percent_to_payout() {
+    let mut w = launch(Opts::default());
+    let v = 30 * SOL;
     let buyer = Keypair::new();
     w.svm.airdrop(&buyer.pubkey(), 50 * SOL).unwrap();
 
-    // Buy 2 SOL worth
     let payout0 = w.lamports(&w.payout.pubkey());
-    let expect = quote(2 * SOL, POOL_SOL, SUPPLY);
+    let expect = quote(2 * SOL, v, SUPPLY);
     w.trade(&buyer, true, 2 * SOL, expect).expect("buy");
     assert_eq!(w.tokens(&buyer.pubkey()), expect);
     assert_eq!(w.lamports(&w.payout.pubkey()), payout0, "buys pay no fee");
-    assert_eq!(w.sol_reserve(), POOL_SOL + 2 * SOL);
+    assert_eq!(w.sol_reserve(), v + 2 * SOL);
+    assert_eq!(w.real_sol(), 2 * SOL);
 
-    // Sell half
     let half = expect / 2;
     let (tok_res, sol_res) = (w.tokens(&w.pool), w.sol_reserve());
     let gross = quote(half, tok_res, sol_res);
-    let fee = gross * 1500 / 10_000;
+    let fee = fee_of(gross, 1500);
     let user0 = w.lamports(&buyer.pubkey());
     w.trade(&buyer, false, half, gross - fee).expect("sell");
     assert_eq!(w.lamports(&w.payout.pubkey()) - payout0, fee, "15% of the SOL goes to the payout wallet");
     assert_eq!(w.lamports(&buyer.pubkey()) - user0 + 5_000, gross - fee, "seller gets the rest (minus the 5000 lamport tx fee)");
     assert_eq!(w.sol_reserve(), sol_res - gross);
+    assert_eq!(w.real_sol(), w.sol_reserve() - v);
     assert_eq!(w.tokens(&buyer.pubkey()), expect - half);
 }
 
 #[test]
+fn buy_fee_goes_to_payout_and_only_the_rest_is_priced() {
+    let mut w = launch(Opts { buy_fee_bps: 100, ..Opts::default() });
+    let v = 30 * SOL;
+    let buyer = Keypair::new();
+    w.svm.airdrop(&buyer.pubkey(), 50 * SOL).unwrap();
+    let payout0 = w.lamports(&w.payout.pubkey());
+    let sol_in = 2 * SOL + 7; // not a round number, so the floor matters
+    let fee = fee_of(sol_in, 100);
+    let net = sol_in - fee;
+    let expect = quote(net, v, SUPPLY);
+
+    // The quote is on the net amount: asking for what a fee-free buy would give is refused.
+    let e = w.trade(&buyer, true, sol_in, quote(sol_in, v, SUPPLY)).unwrap_err();
+    assert_eq!(custom_code(&e), Some(ERR_SLIPPAGE), "{e}");
+    let user0 = w.lamports(&buyer.pubkey());
+    w.trade(&buyer, true, sol_in, expect).expect("buy");
+
+    assert_eq!(w.tokens(&buyer.pubkey()), expect);
+    assert_eq!(w.lamports(&w.payout.pubkey()) - payout0, fee, "the payout wallet gets exactly the fee");
+    assert_eq!(w.sol_reserve(), v + net, "the pool books only the net amount");
+    assert_eq!(w.real_sol(), net);
+    let ata_rent = w.svm.minimum_balance_for_rent_exemption(w.svm.get_account(&ata(&buyer.pubkey(), &w.mint)).unwrap().data.len());
+    assert_eq!(user0 - w.lamports(&buyer.pubkey()), sol_in + ata_rent + 5_000, "buyer paid the buy, the new token account's rent and the tx fee");
+}
+
+#[test]
 fn slippage_guard_refuses_a_bad_price() {
-    let mut w = launch();
+    let mut w = launch(Opts::default());
     let buyer = Keypair::new();
     w.svm.airdrop(&buyer.pubkey(), 10 * SOL).unwrap();
-    let expect = quote(SOL, POOL_SOL, SUPPLY);
+    let expect = quote(SOL, 30 * SOL, SUPPLY);
     let err = w.trade(&buyer, true, SOL, expect + 1).unwrap_err();
-    assert!(err.contains("Custom(6002)"), "{err}"); // PoolError::Slippage
+    assert_eq!(custom_code(&err), Some(ERR_SLIPPAGE), "{err}");
+    assert_eq!(w.tokens(&buyer.pubkey()), 0);
+    assert_eq!(w.real_sol(), 0, "a refused buy moves nothing");
+}
+
+#[test]
+fn sell_refuses_when_the_pool_is_short_of_real_sol() {
+    // Honest use never gets here (property.rs); this breaks the invariant by hand to prove the guard works.
+    let mut w = launch(Opts::default());
+    let buyer = Keypair::new();
+    w.svm.airdrop(&buyer.pubkey(), 50 * SOL).unwrap();
+    w.trade(&buyer, true, 2 * SOL, 1).expect("buy");
+    let held = w.tokens(&buyer.pubkey());
+    let gross = quote(held, w.tokens(&w.pool), w.sol_reserve());
+    assert!(gross > 0 && gross <= w.real_sol());
+
+    // Take 1 lamport more than the pool can spare below `gross`.
+    let mut acct = w.svm.get_account(&w.pool).unwrap();
+    acct.lamports = w.pool_rent() + gross - 1;
+    w.svm.set_account(w.pool, acct).unwrap();
+    let e = w.trade(&buyer, false, held, 1).unwrap_err();
+    assert_eq!(custom_code(&e), Some(ERR_POOL_SHORT), "{e}");
+    assert_eq!(w.tokens(&buyer.pubkey()), held, "nothing moved");
+
+    // One lamport back and the same sell goes through, down to exactly the rent.
+    let mut acct = w.svm.get_account(&w.pool).unwrap();
+    acct.lamports = w.pool_rent() + gross;
+    w.svm.set_account(w.pool, acct).unwrap();
+    w.trade(&buyer, false, held, 1).expect("sell at the limit");
+    assert_eq!(w.lamports(&w.pool), w.pool_rent(), "the pool keeps its rent");
+}
+
+#[test]
+fn team_buy_in_the_launch_transaction_pays_the_price_of_the_virtual_seed() {
+    let w = launch(Opts { team_buy: 2 * SOL, ..Opts::default() });
+    let c = w.creator.pubkey();
+    let expect = quote(2 * SOL, 30 * SOL, SUPPLY);
+    assert_eq!(w.tokens(&c), expect, "no one could buy before the team did");
+    assert_eq!(w.tokens(&w.pool), SUPPLY - expect);
+    assert_eq!(w.real_sol(), 2 * SOL);
+    assert_eq!(w.mint_state(), (None, None));
 }
 
 #[test]
 fn hook_allows_wallets_and_refuses_other_pools() {
-    let mut w = launch();
+    let mut w = launch(Opts::default());
     let buyer = Keypair::new();
     let friend = Keypair::new();
     w.svm.airdrop(&buyer.pubkey(), 10 * SOL).unwrap();
@@ -222,5 +167,26 @@ fn hook_allows_wallets_and_refuses_other_pools() {
     // A vault owned by some other program's address (e.g. a Raydium pool authority) is off-curve.
     let other_pool = Address::find_program_address(&[b"pool"], &addr("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")).0;
     let err = w.transfer(&buyer, &other_pool, 1_000_000).unwrap_err();
-    assert!(err.contains("Custom(6001)"), "{err}"); // HookError::OtherPool
+    assert_eq!(custom_code(&err), Some(ERR_OTHER_POOL), "{err}");
+}
+
+#[test]
+fn trades_and_the_launch_fit_their_compute_limits() {
+    // The Worker asks for 200,000 units on a buy or sell (src/trade.js); a launch transaction may ask for 1,400,000.
+    let mut w = launch(Opts { buy_fee_bps: 100, team_buy: SOL, ..Opts::default() });
+    let launch_cu = w.last_cu;
+    let buyer = Keypair::new();
+    w.svm.airdrop(&buyer.pubkey(), 50 * SOL).unwrap();
+    w.trade(&buyer, true, SOL, 1).expect("buy into a new token account");
+    let first_buy = w.last_cu;
+    w.trade(&buyer, true, SOL, 1).expect("buy again");
+    let second_buy = w.last_cu;
+    let half = w.tokens(&buyer.pubkey()) / 2;
+    w.trade(&buyer, false, half, 1).expect("sell");
+    let sell = w.last_cu;
+    eprintln!("compute units: launch tx {launch_cu}, first buy {first_buy}, later buy {second_buy}, sell {sell}");
+    assert!(launch_cu < 400_000, "launch tx used {launch_cu}");
+    for (name, cu) in [("first buy", first_buy), ("later buy", second_buy), ("sell", sell)] {
+        assert!(cu < 150_000, "{name} used {cu} units; the Worker's limit is 200,000");
+    }
 }

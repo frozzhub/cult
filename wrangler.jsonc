@@ -1,8 +1,11 @@
 {
-  // CULT ($CULT) on Meteora: site + API + buy-refund watcher + airdrop cron. Not deployed yet (waiting on the green light).
+  // CULT ($CULT) on Meteora's bonding curve: site + API + Helius webhook + the cron that refunds
+  // buyers, sweeps the tax and pays holders. Not deployed yet (waiting on the green light). Contract for the page: docs/API.md.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "cult-meteora",
-  // Live at cults.bid (moved from Kay's earlier "cult" Worker on 2026-11-21; that Worker is left as it was).
+  "name": "cult",
+  // The Cloudflare account that also holds the domain cults.bid. Pinned so a deploy can't land in another account.
+  "account_id": "c86a724ee0e65237b18c5061a5ab47a4",
+  // cults.bid went live on 17 Nov 2026. Staging has its own env and never gets this route.
   "routes": [{ "pattern": "cults.bid", "custom_domain": true }],
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
@@ -12,99 +15,154 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "cult-mainnet",
-      // Created 2026-11-21 for the Meteora mainnet launch.
-      "database_id": "c377e226-f681-45ff-a273-f8382f145065",
+      "database_name": "cult",
+      // Remote database on the Cloudflare account that holds cults.bid, created 16 Nov 2026.
+      "database_id": "c02fb5e8-8d88-4c5b-b140-8304866e474a",
       "migrations_dir": "migrations"
     }
   ],
-  // Every minute: open the airdrop for each 10-minute round, then snapshot -> swap -> allocate -> pay, one step at a time.
+  // Per-caller limits on the endpoints that spend RPC or Jupiter quota (src/index.js, rateLimited). Building trades and refund
+  // hints are the expensive ones; quotes and status reads are polled by the page. Namespace ids only need to be unique per account.
+  "ratelimits": [
+    { "name": "RL_TRADE", "namespace_id": "2001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_READ", "namespace_id": "2002", "simple": { "limit": 120, "period": 60 } }
+  ],
+  // Every minute: refunds and sweeps, the curve, the partner fee claim, then the 10-minute round
+  // (snapshot -> sweep -> swap -> allocate -> pay), one step at a time.
   "triggers": { "crons": ["* * * * *"] },
-  // Signing a few hundred payout transactions takes a while. The refund watcher runs ~55s of each minute (mostly waiting).
+  // Signing a few hundred payout transactions takes a while.
   "limits": { "cpu_ms": 120000 },
   "vars": {
     "TICKER": "CULT",
-    // Coin mint. Empty until launch: the Buy button and live data switch on when it's set.
+    // Coin mint. Empty until launch; setting it and deploying is all the launch needs (the pool, its config and the vaults are
+    // found from the chain). The Buy button and live data switch on when it's set.
     "MINT": "",
-    // 10% on every trade (Meteora), in SOL. Buys are refunded in full; sells fund the airdrop.
-    "FEE_BPS": "1000",
-    // Meteora launch (buy refunds, Meteora copy on the site) even before VAULTS is set.
-    "VENUE": "meteora",
+    // Optional. The Meteora DBC config account the coin was launched with. Unset, the Worker finds the curve pool from MINT
+    // on chain (one getProgramAccounts, remembered) and reads the config from the pool: MINT alone is enough.
+    "DBC_CONFIG": "",
+    // Optional. The wallet that created the curve pool (the launch wallet's). Set, the tick refuses a pool made by anyone else:
+    // the DBC config is public, so a stranger's copy of the coin on it would otherwise pass every check. Set at T-0, after verify-launch.
+    // At launch, deploy with --var CREATOR:<the launch wallet> (scripts/go-live.sh). Kept empty here: the tests read this file.
+    "CREATOR": "",
+    // The token the curve is quoted in: empty = SOL, or the USDC mint (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v). It must match the
+    // DBC config's quote mint or the curve read (and so the stage, the claims and graduation) refuses. With USDC the curve's fees arrive
+    // as USDC and the round no longer sells SOL, so the payout wallet's SOL is only ever its gas and account-rent float: top it up by hand.
+    // The production deploy passes --var QUOTE_MINT:<USDC> (scripts/go-live.sh). Kept empty here: the tests read this file.
+    "QUOTE_MINT": "",
+    // The transfer fee the mint withholds on every transfer (the curve's cap is 10%). The page shows it, and the tick refuses a mint whose fee differs.
+    "SELL_TAX_BPS": "1000",
     "DROP_MINUTES": "10",
     // Wallets below this USD value are skipped, which keeps USDC account rent under control.
     "MIN_HOLD_USD": "50",
     // Hold this many days without selling for a bigger share: days:multiplier.
     "STREAKS": "7:1.25,30:1.5",
     "X_HANDLE": "thecultponzi",
-    // "1" serves generated sample data for review. Off: the live site shows the pre-launch state until MINT is set.
+    // "1" serves generated sample data for review. "0": with no MINT the site shows its pre-launch state.
     "DEMO": "0",
 
-    // ---- Meteora launch (all three printed by scripts/launch-meteora.mjs) ----
-    // The bonding curve pool, and its "<base vault>:<quote vault>". The DAMM v2 pool after graduation is found automatically.
-    "POOL_ACCOUNT": "",
-    "VAULTS": "",
-    // The treasury: earns the fees, refunds buyers, swaps to USDC and pays holders. Its key is the PAYOUT_SECRET_KEY secret.
-    "PAYOUT_WALLET": "",
-    // SOL kept back in the treasury for instant refunds between fee claims (0.5 SOL).
-    "REFUND_FLOAT_LAMPORTS": "500000000",
-    // Comma-separated wallets that never get airdrops (team, treasury, CEX wallets).
+    // ---- the payout wallet ----
+    // The DBC fee claimer, the mint's withdraw-withheld authority and the treasury (its CULT token account holds the swept tax).
+    // Its key is the PAYOUT_SECRET_KEY secret; refunds, sweeps, swaps and payouts are all signed by it, and the tick refuses to
+    // run unless this is the mint's withdraw-withheld authority.
+    "PAYOUT_WALLET": "HrEKXpJvACWNxQJgQGhqNmJgQpwgC6kjtPD4dyDK2AH5",
+    // Comma-separated wallets that never get airdrops. Empty on purpose: the creator and early wallets are holders like any other.
     "EXCLUDE": "",
-    // "1" runs every step without signing or sending anything. Set "0" to go live.
+    // "1" runs every step without signing or sending anything: no payouts, no sweeps, no swaps, no migration, no claim.
+    // The safe default for a deploy that is not the launch; the launch deploy sets "0" (no practice round).
     "DRY_RUN": "1",
-    // SOL always kept in the payout wallet for fees (0.05 SOL).
-    "SOL_RESERVE_LAMPORTS": "50000000",
+    // Refunds only: "0" lets refunds go live while DRY_RUN is still "1". Unset follows DRY_RUN.
+    // "REFUNDS_DRY_RUN": "0",
+
+    // ---- refunds and sweeps (src/fees.js) ----
+    // Owners that never get a refund: their withheld tokens are swept to the treasury instead. Comma-separated.
+    "REFUND_DENY": "",
+    // Less withheld than this many USD (at the current price) is swept, not refunded: dust can't be farmed for our fees.
+    "REFUND_MIN_USD": "0.01",
+    // The same floor in raw units (6 decimals), used while there is no price.
+    "REFUND_MIN_TOKENS": "100000",
+    // Refund transactions per UTC day before the rest wait for tomorrow. Only refunds are braked; sweeps never are.
+    "REFUND_TX_PER_DAY": "50000",
+    // The most a vault sweep pays per compute unit (micro-lamports) when the vault is busy; it bids what recently landed on it, never less than 100,000.
+    "FEE_PRIORITY_MAX_MICROLAMPORTS": "10000000",
+    // "1": a site buy carries its refund in the same transaction. Off until a real Phantom/Solflare/Backpack buy proves the
+    // wallet keeps our co-signature (docs/API.md). The page can ask per trade with { atomic: true }.
+    "ATOMIC_REFUND": "0",
+
+    // ---- selling the tax for USDC ----
+    // Price impact (the coin's own tax not counted) one swap may cause; it sells only what fits and the rest waits.
+    "MAX_SWAP_IMPACT_BPS": "300",
+    // SOL always kept in the payout wallet, never sold to USDC: 1 SOL, about a day of fees (refunds, sweeps, swaps, payouts and the
+    // 0.002 SOL that opens each new holder's USDC account) plus the 0.15 SOL the migration to DAMM v2 needs (MIGRATE_MIN_LAMPORTS).
+    // The SOL leg of the round sells only what is above this. After graduation the hourly claim of the locked position's SOL fees
+    // refills it (nothing swaps USDC back to SOL), so fund the wallet with this much plus a margin.
+    "SOL_RESERVE_LAMPORTS": "1000000000",
     // Payouts smaller than this roll into the next airdrop.
     "MIN_PAYOUT_USDC": "0.01",
     // Wallets paid per transaction (8 fits under Solana's size limit even when opening their USDC accounts).
     "BATCH_SIZE": "8",
     "SLIPPAGE_BPS": "100",
-    "JUP_API": "https://lite-api.jup.ag"
+    // The keyed Jupiter endpoint (JUP_API_KEY secret); the free lite-api answers 429 to Cloudflare.
+    "JUP_API": "https://api.jup.ag"
   },
-  // Secrets: SOLANA_RPC_URL (Helius key or URL), HELIUS_WEBHOOK_SECRET, PAYOUT_SECRET_KEY, JUP_API_KEY (optional)
+  // Secrets: SOLANA_RPC_URL (Helius key or URL; the site's reads), CRON_RPC_URL (a separate key for the cron so site traffic
+  // can't throttle refunds and payouts; falls back to SOLANA_RPC_URL), HELIUS_WEBHOOK_SECRET, PAYOUT_SECRET_KEY, JUP_API_KEY,
+  // and X_CLIENT_ID / X_CLIENT_SECRET for profile linking. Keep free or public endpoints out of the mainnet RPC lists.
 
-  // `wrangler deploy --env devnet`: the devnet launch on Meteora's bonding curve (scripts/launch-meteora.mjs, tiny
-  // market caps so it can graduate). Buys refunded for real; airdrops in a stand-in USDC (no Jupiter on devnet).
+  // `wrangler deploy --env staging`: the same Worker on mainnet data, under its own name and database, for a rehearsal on a
+  // throwaway coin. Everything is dry until a var says otherwise (--var DRY_RUN:0 --var REFUNDS_DRY_RUN:0 to make it real).
+  // MINT, PAYOUT_WALLET, MIN_HOLD_USD and every other var below can be replaced at deploy time with --var NAME:value.
+  // (vars, bindings and limits are not inherited by an env.) Filled in for the throwaway coin B5Q7...FB2 (its DBC config is
+  // 5hLxFWnjb6fx4HHQ6HL6tewcbsUVcmN8AdqhEH6gdQKW; DBC_CONFIG stays empty on purpose: the Worker finds the pool from the mint).
   "env": {
-    "devnet": {
-      "name": "paper-hands-devnet",
+    "staging": {
+      "name": "cult-staging",
+      // Empty on purpose: without it staging inherits the top-level route and takes cults.bid away from production (it did, 17 Nov).
       "routes": [],
+      // workers.dev only, never a route on cults.bid.
       "workers_dev": true,
-      "d1_databases": [{ "binding": "DB", "database_name": "paper-hands-devnet-meteora", "database_id": "2c2f23cb-d5ce-4656-ae8e-ce4542e2b76c", "migrations_dir": "migrations" }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "cult-staging",
+          // Create it with `wrangler d1 create cult-staging` and paste its id here.
+          "database_id": "d1790367-90d6-410c-8f41-9cdac3b504e0",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "ratelimits": [
+        { "name": "RL_TRADE", "namespace_id": "2011", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_READ", "namespace_id": "2012", "simple": { "limit": 120, "period": 60 } }
+      ],
       "triggers": { "crons": ["* * * * *"] },
+      "limits": { "cpu_ms": 120000 },
       "vars": {
-        "CLUSTER": "devnet",
-        "X_HANDLE": "",
-        "POOL_ACCOUNT": "ELY4npxK6fYunq28Vm4JfPma85ARcW7aAg5xHG33NkJh",
-        "VAULTS": "75fsZKQoTw4uTZW5w36qHVXMELqqhK4HcueYAQesMXW9:CRqoNrVSJ5cbwPz7TpZah3tGgAcDjE93eTQJ2zc5Hugn",
-        "EXCLUDE": "",
         "TICKER": "CULT",
-        "MINT": "EPZ4DMTfVdRHDk7dZepBm5DkpW2gNUZa5uXxicPya49u",
-        "PAYOUT_WALLET": "GCpRo9fhAho6XhCrihAjgMz9WNiTB5Z6mYtFtmnYEBbc",
-        // api.devnet.solana.com blocks Cloudflare IPs. These two free endpoints don't (tried in order, failover on 429/403).
-        "SOLANA_RPC_URL": "https://solana-devnet.g.alchemy.com/v2/demo,https://solana-devnet.api.onfinality.io/public",
-        // Free RPCs can't do holder snapshots, so holders come from our own index of the mint's history.
-        "HOLDERS": "index",
-        "POLL_GAP_MS": "150",
-        "POLL_PAGE": "100",
-        "FEE_BPS": "1000",
-    // Meteora launch (buy refunds, Meteora copy on the site) even before VAULTS is set.
-    "VENUE": "meteora",
-        // Small float on devnet (the wallets only hold a few tenths of a SOL).
-        "REFUND_FLOAT_LAMPORTS": "20000000",
+        "MINT": "B5Q7wMsmNUAvxkP3u1bJeQhQwSqtgpFBYYHKjAuWFB2",
+        "DBC_CONFIG": "",
+        "CREATOR": "",
+        "QUOTE_MINT": "", // empty = SOL (this throwaway coin's curve is quoted in SOL); see the top-level note
+        "SELL_TAX_BPS": "1000",
         "DROP_MINUTES": "10",
-        "MIN_HOLD_USD": "1",
+        "MIN_HOLD_USD": "50",
         "STREAKS": "7:1.25,30:1.5",
+        "X_HANDLE": "thecultponzi",
         "DEMO": "0",
-        // Real payouts on devnet, in a stand-in USDC (scripts/devnet-test-usdc.mjs). No Jupiter on devnet, so no swap:
-        // the pot is whatever test USDC the payout wallet holds.
-        "DRY_RUN": "0",
-        "SWAP": "off",
-        "USDC_MINT": "56EvddarourfZET4VC6EMYKwyG7uLWbBdxtcetmp1k5e",
-        "SOL_RESERVE_LAMPORTS": "10000000",
+        "PAYOUT_WALLET": "KDpz3icbjmmib1DDeitywpk6ZdsQckHiqt6hKmKnnaq",
+        "EXCLUDE": "",
+        "DRY_RUN": "1",
+        "REFUNDS_DRY_RUN": "1",
+        "REFUND_DENY": "",
+        "REFUND_MIN_USD": "0.01",
+        "REFUND_MIN_TOKENS": "100000",
+        "REFUND_TX_PER_DAY": "50000",
+        "FEE_PRIORITY_MAX_MICROLAMPORTS": "10000000",
+        "ATOMIC_REFUND": "0",
+        "MAX_SWAP_IMPACT_BPS": "300",
+        "SOL_RESERVE_LAMPORTS": "1000000000",
         "MIN_PAYOUT_USDC": "0.01",
         "BATCH_SIZE": "8",
         "SLIPPAGE_BPS": "100",
-        "JUP_API": "https://lite-api.jup.ag"
+        "JUP_API": "https://api.jup.ag"
       }
     }
   }

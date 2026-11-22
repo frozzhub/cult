@@ -5,3 +5,9 @@ target/
 
 programs-tests/target/
 program-keys/
+
+# Local ops only: launch watcher logs, Discord cards and their tools (personal paths, webhook file)
+.live/
+design/
+scripts/watch.mjs
+scripts/payout-card.mjs

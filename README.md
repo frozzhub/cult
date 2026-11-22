@@ -1,61 +1,60 @@
-<p align="center"><img src="public/logo.png" width="96" alt="CULT"></p>
+# CULT ($CULT)
 
-<h1 align="center">CULT ($CULT)</h1>
+CULT is a Solana memecoin with a 10% sell tax that is paid back to holders in USDC every 10 minutes. This repository is its backend and website.
 
-<p align="center"><b>Everyone's panicking. The cult is getting paid.</b><br>
-<a href="https://cults.bid">cults.bid</a> · <a href="https://x.com/thecultponzi">@thecultponzi</a></p>
+- Site: https://cults.bid
+- X: @thecultponzi
+- Mint address: published on cults.bid at launch.
 
----
+## The mechanism
 
-**Sellers pay 10%.** Paid to holders in USDC every 10 minutes.
-**Buyers pay 0%.** The 10% held on a buy comes straight back, usually in seconds.
+- The token is a Token-2022 mint with a 10% transfer fee. It launched on a Meteora Dynamic Bonding Curve paired with USDC. At about $28,400 market cap, after about $5,879 raised, it graduates to a Meteora DAMM v2 CULT/USDC pool with locked liquidity.
+- Token-2022 charges the fee on every transfer, including buys. The Worker in this repository returns the fee to anyone who receives tokens in an ordinary wallet, so buying nets 0%. Tokens that arrive in a pool vault (a sell) keep the fee, and it is swept to a treasury.
+- Every 10 minutes a round sells the treasury's CULT for USDC on Jupiter and splits the USDC among holders by weight. Weight is balance times a devotion multiplier: 1.25x after 7 days without selling, 1.5x after 30. Wallets holding under 50 USD are skipped.
+- The curve's trading fees arrive as USDC, straight into the holder pot. The round no longer swaps SOL: it only sells the swept 10% tax (CULT) for USDC.
+- The site's Buy and Sell use SOL. Jupiter routes SOL to USDC to CULT.
+- The payout wallet's SOL is a float for gas, refunds and new holders' USDC account rent. The operator tops it up by hand.
+- Payouts go out in batches of 8 per transaction. Every send is saved before it is made and checked from its signature afterwards, so a crash cannot pay a holder twice.
 
-$CULT trades on Meteora, so it shows up on Axiom, GMGN, Jupiter and Dexscreener like any other coin. Buy wherever you like; the refund finds you.
+The payout wallet is `HrEKXpJvACWNxQJgQGhqNmJgQpwgC6kjtPD4dyDK2AH5`. It is the mint's withdraw-withheld authority and the curve's fee claimer. The Meteora DBC config address is `<USDC DBC config, published at launch>`.
 
-## How it works
+## Trust, in short
 
-1. **Join.** Every trade on the pool pays a 10% fee in SOL. When you buy, the cult sends your whole 10% back to the wallet that received the $CULT, usually within seconds, with a note: *"CULT: your 10% buy fee back"*.
-2. **Leave.** Selling pays 10% of the sale. That's the exit tithe, and it stays with the cult. It's taken in SOL, so it never sells $CULT into the chart.
-3. **Get paid.** Every 10 minutes the tithe is swapped to USDC and split between every wallet holding at least $50 of $CULT, by balance.
-4. **Stay.** Hold without selling for 7 days and your share counts 1.25×; after 30 days, 1.5×. Any sell resets it.
+The payout wallet's key is a hot key held as a Cloudflare Worker secret. It signs every refund, sweep, swap and payout. Whoever controls that secret or the deployment can move what the wallet holds. The 10% fee, the absence of mint and freeze authority and the locked liquidity are enforced on chain. Who is paid, and how much, is decided off chain by this code. There has been no audit. [AGENTS.md](AGENTS.md) section 6 sets out what is enforced where, and section 7 lists the on-chain reads that let you check the live coin yourself.
 
-## The numbers, honestly
+## Read more
 
-- Meteora keeps a fifth of every fee. So each sell adds about **8%** of the sale to the pot, and refunding each buy's full 10% costs the pot about **2%** of the buy.
-- **The pot only comes from people leaving.** If nobody sells, nobody gets paid. Refunds are always paid before airdrops.
-- **Graduation:** after about 86 SOL is raised, Meteora moves $CULT to a regular pool with the same 10% SOL fee. All of that liquidity is permanently locked; it can't be pulled.
-- The pool, the treasury and team wallets are never paid.
+- [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): the full explanation, including why a sell-only tax needs a brief hold on buys, and how failures are handled.
+- [AGENTS.md](AGENTS.md): a reference for AI agents and reviewers. File map, money flows, database tables, invariants with the tests that prove them, trust assumptions, how to verify on chain.
+- [docs/API.md](docs/API.md): the HTTP API the site uses.
 
-**This is a game, not an investment.** Nothing here promises a return.
+## What is in the repository
 
-## Check it yourself
-
-Every refund and every airdrop is a normal Solana transaction from the treasury wallet, so anyone can audit them on Solscan.
-
-| | |
+| Path | Contents |
 |---|---|
-| Contract (mint) | *posted at launch* |
-| Treasury | `CkyNmmRxRtdn4rM8NDxaEskNz6bRGd7AnzsiuKu2uHYp` |
-| Pool | Meteora Dynamic Bonding Curve, then DAMM v2 after graduation |
+| `src/` | The Cloudflare Worker: API, Helius webhook, the every-minute cron, the refund and sweep engine, the round engine. |
+| `migrations/` | D1 (SQLite) schema. |
+| `public/` | The static site. |
+| `scripts/` | Operator tools: curve config and launch, launch verification, graduation, manual fee operations, monitoring. |
+| `test/` | Worker tests. |
+| `wrangler.jsonc` | Deployment config and every non-secret setting. |
+| `programs/` | An earlier custom pool and transfer hook in Rust. Not part of the live design. |
 
-## What's in this repo
-
-The whole thing runs as one Cloudflare Worker with a D1 database.
-
-| | |
-|---|---|
-| `public/` | The site: countdown, pot, price chart, Members, Left the cult, Payouts, profiles |
-| `src/meteora.js` | Watches the pool every few seconds and refunds every buy (each refund is saved before it's sent, so no one is paid twice); claims fees; follows the coin to its new pool after graduation |
-| `src/indexer.js` | The 10-minute rounds: snapshot holders, swap to USDC on Jupiter, split, pay in batches |
-| `src/meteora-trade.js` | The site's own Buy/Sell (via Jupiter, or the pool directly) |
-| `src/profiles.js` | Sign in with your wallet and link your X |
-| `scripts/launch-meteora.mjs` | Creates the coin on Meteora with the 10% fee |
-| `test/` | 48 tests, including real devnet transactions |
+## Run the tests
 
 ```
 npm install
-npm test        # 48 tests
-npm run dev     # the site locally
+npm test
 ```
 
-The full build history (including the original custom-pool version) is in [docs/BUILD-LOG.md](docs/BUILD-LOG.md).
+The tests run offline. They use a local D1 database through `wrangler` and a fake chain and Jupiter, with some real mainnet account data in `test/fixtures/`. `npm run check` only confirms that every source and test file parses. Operator-script tests run with `node --test scripts/test/*.test.mjs`.
+
+To look at the site with sample data, set `DEMO` to `"1"` and run `npm run dev`.
+
+## Settings and secrets
+
+Non-secret settings are the `vars` in `wrangler.jsonc`, with a comment on each. Secrets are set with `wrangler secret put`: `PAYOUT_SECRET_KEY`, `SOLANA_RPC_URL`, `CRON_RPC_URL`, `HELIUS_WEBHOOK_SECRET`, `JUP_API_KEY`, `X_CLIENT_ID`, `X_CLIENT_SECRET`. `DRY_RUN` is on unless it is set to `"0"`: in that mode every step reads and plans, and nothing is signed or sent.
+
+## Not financial advice
+
+CULT is a memecoin. Payouts depend on trading activity and can be zero. Nothing here is a promise of return.

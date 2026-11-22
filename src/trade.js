@@ -1,143 +1,128 @@
-// Buy / sell against the $PAPER pool (programs/paper-pool). Same pattern as Clipped: the Worker builds the
-// transaction, the user's wallet signs it in the browser, the Worker relays it. No keys involved.
-//   GET  /api/pool            -> reserves + fee, so the page can quote as you type
-//   POST /api/trade           -> { wallet, side: "buy"|"sell", amount (raw units), slippageBps } -> unsigned tx
-//   POST /api/send            -> { signed } -> signature (only relays transactions that call the pool)
-//   GET  /api/tx/:sig         -> "sent" | "confirmed" | "failed"
-import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { ADDR } from "./config.js";
-import { rpc, latestBlockhash, sigStatuses, sigOf } from "./chain.js";
+// Trading for the site, through Jupiter. It works on the curve and after graduation: Jupiter routes to whichever pool
+// holds the coin, and there is no pool code of ours.
+//   GET  /api/quote?side=buy|sell&amount=<raw>&slippageBps=   what a trade would give, with the sell tax shown
+//   POST /api/trade { wallet, side, amount, slippageBps, atomic? }   a base64 versioned transaction for the wallet to sign
+//        and send itself. A buy also carries the refund of its own tax: "refund": "atomic" (in the same transaction,
+//        signed by the fee key) or "after" (the refund engine sends it seconds later).
+//   GET  /api/tx/:sig                      "sent" | "confirmed" | "failed"
+//   POST /api/refund/hint { sig }          a confirmed signature: look at it now (the chain is read, not the browser)
+// Everything Jupiter hands back is inspected before the wallet sees it (jupiter.js); a transaction we co-sign is
+// inspected before our key signs.
+import { PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { ADDR, SOL_MINT } from "./config.js";
+import { sigStatuses, toB64, payoutKeypair, getAccounts } from "./chain.js";
+import * as jup from "./jupiter.js";
+import { classify, feeOn, parseTokenAccount, refundIx, treasuryAta } from "./token22.js";
+import { hintSignature, cachedPrices } from "./indexer.js";
 
-const enc = new TextEncoder();
-const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-const toB64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
 const bad = (msg, status = 400) => Response.json({ error: msg }, { status });
+const user = (msg, status = 400) => Object.assign(new Error(msg), { userFacing: true, status }); // shown to the visitor as it is
+const T22 = TOKEN_2022_PROGRAM_ID.toBase58(), T1 = TOKEN_PROGRAM_ID.toBase58();
+const MAX_AMOUNT = 2n ** 62n;
 
-export const tradeReady = (cfg) => !!(cfg.mint && cfg.poolProgram && cfg.hookProgram);
+export const tradeReady = (cfg) => !!(cfg.mint && ADDR.test(cfg.payout));
 
-// Anchor instruction discriminator: first 8 bytes of sha256("global:<name>").
-async function disc(name) { return new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode("global:" + name))).slice(0, 8); }
-const u64le = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return b; };
+function parseAmount(v) {
+  let n; try { n = BigInt(v); } catch { throw user("Enter an amount."); }
+  if (n <= 0n || n >= MAX_AMOUNT) throw user("Enter an amount.");
+  return n;
+}
+const slippage = (v) => Math.min(Math.max(Math.round(Number(v)) || 100, 10), 2000);
 
-// Addresses the page needs to read the pool itself (derived, no RPC).
-export function poolAccounts(cfg) {
-  const pool = poolAddress(cfg);
-  return { pool: pool.toBase58(), vault: getAssociatedTokenAddressSync(new PublicKey(cfg.mint), pool, true, TOKEN_2022_PROGRAM_ID).toBase58() };
+// A buy sells SOL for the coin; a sell sells the coin for SOL.
+const legs = (cfg, side) => (side === "buy" ? { inputMint: SOL_MINT, outputMint: cfg.mint } : { inputMint: cfg.mint, outputMint: SOL_MINT });
+
+async function getQuote(env, cfg, side, amount, slippageBps) {
+  let q;
+  try { q = await jup.quote(env, cfg, { ...legs(cfg, side), amount: String(amount), slippageBps }); }
+  catch (e) { const none = /no route|could not find any route/i.test(e.message); throw user(none ? "There's no route for that amount. Try a smaller one." : "Couldn't get a price just now. Try again in a moment.", none ? 400 : 503); }
+  return q;
 }
 
-export function poolAddress(cfg) {
-  return PublicKey.findProgramAddressSync([enc.encode("pool"), new PublicKey(cfg.mint).toBytes()], new PublicKey(cfg.poolProgram))[0];
-}
-
-// Pool, its vault and the mint in ONE call (free RPC tiers rate-limit hard), cached for 10s per isolate.
-//   pool:  8 disc | mint 32 | vault 32 | payout 32 | fee_bps u16 | sol_reserve u64 | bump u8
-//   vault: Token-2022 account, amount u64 at offset 64
-//   mint:  decimals u8 at offset 44
-let poolCache = null;
-export async function readPool(env, cfg, { fresh = false } = {}) {
-  if (!fresh && poolCache && poolCache.key === cfg.mint && Date.now() - poolCache.at < 10_000) return poolCache.value;
-  const pool = poolAddress(cfg);
-  const mint = new PublicKey(cfg.mint);
-  const vault = getAssociatedTokenAddressSync(mint, pool, true, TOKEN_2022_PROGRAM_ID);
-  let r;
-  try { r = await rpc(env, "getMultipleAccounts", [[pool.toBase58(), vault.toBase58(), mint.toBase58()], { encoding: "base64" }]); }
-  catch (e) { // RPC throttled: a quote from up to 5 min ago beats an error (trades still re-read fresh)
-    if (!fresh && poolCache?.key === cfg.mint && Date.now() - poolCache.at < 300_000) return poolCache.value;
-    throw e;
-  }
-  const [p, va, m] = (r?.value || []).map((a) => (a ? fromB64(a.data[0]) : null));
-  const poolLamports = BigInt(r?.value?.[0]?.lamports || 0);
-  if (!p || !va || !m) throw new Error("Pool not created yet.");
-  const v = new DataView(p.buffer, p.byteOffset);
-  const value = {
-    pool, vault, payout: new PublicKey(p.slice(72, 104)),
-    feeBps: v.getUint16(104, true),
-    solReserve: v.getBigUint64(106, true),
-    tokenReserve: new DataView(va.buffer, va.byteOffset).getBigUint64(64, true),
-    decimals: m[44],
+// The numbers the page shows. `out` is what Jupiter says you receive: the coin's tax is already inside it. A buy gets its tax
+// back (the refund), so what the buyer ends with is out plus that refund; a sell has no refund and pays the tax.
+async function describe(cfg, q, side, amount, slippageBps, prices) {
+  const bps = cfg.sellTaxBps, out = BigInt(q.outAmount), min = BigInt(q.otherAmountThreshold ?? q.outAmount);
+  const refund = side === "buy" ? (out * BigInt(bps)) / BigInt(10_000 - bps) : 0n; // gross = net / (1 - tax)
+  return {
+    side, amountIn: String(amount), outAmount: q.outAmount, minOut: String(min), slippageBps,
+    priceImpactBps: jup.impactBps(q, bps),            // without the tax
+    tax: side === "sell" ? { bps, amount: String(feeOn(amount, bps)) } : { bps: 0, amount: "0" }, // a sell's tax, in coin (raw)
+    ...(side === "buy" ? { refund: { amount: String(refund) }, outAfterRefund: String(out + refund) } : {}),
+    route: (q.routePlan || []).map((p) => p.swapInfo?.label).filter(Boolean).join(" > "),
+    ...(prices?.token > 0 && side === "sell" ? { taxUsd: (Number(feeOn(amount, bps)) / 1e6) * prices.token } : {}),
   };
-  value.rent = poolLamports - value.solReserve; // the pool account's rent: lamports beyond the curve's SOL
-  if (!new PublicKey(p.slice(40, 72)).equals(vault)) throw new Error("Pool vault doesn't match.");
-  poolCache = { key: cfg.mint, at: Date.now(), value };
-  return value;
 }
 
-const quote = (amountIn, reserveIn, reserveOut) => (amountIn * reserveOut) / (reserveIn + amountIn);
-
-// Reserves the browser read itself. Addresses are derived here, never taken from the client.
-function clientPool(cfg, q) {
-  const pool = poolAddress(cfg);
-  const solReserve = BigInt(q.solReserve), tokenReserve = BigInt(q.tokenReserve), feeBps = Number(q.feeBps);
-  if (solReserve <= 0n || tokenReserve <= 0n || !(feeBps >= 0 && feeBps <= 2000) || !ADDR.test(cfg.payout) || !ADDR.test(String(q.blockhash || ""))) return null;
-  return { pool, vault: getAssociatedTokenAddressSync(new PublicKey(cfg.mint), pool, true, TOKEN_2022_PROGRAM_ID), payout: new PublicKey(cfg.payout), feeBps, solReserve, tokenReserve };
+export async function handleTrade(req, env, cfg, path, ctx) {
+  try { return await route(req, env, cfg, path, ctx); }
+  catch (e) { if (e.userFacing) return bad(e.message, e.status); throw e; }
 }
 
-export async function handleTrade(req, env, cfg, path) {
+async function route(req, env, cfg, path, ctx) {
+  const url = new URL(req.url);
   if (!tradeReady(cfg)) return bad("Trading opens at launch.", 503);
 
-  if (path === "/api/pool") {
-    const p = await readPool(env, cfg);
-    return Response.json({ solReserve: p.solReserve.toString(), tokenReserve: p.tokenReserve.toString(), feeBps: p.feeBps, decimals: p.decimals });
+  if (path === "/api/quote" && req.method === "GET") {
+    const side = url.searchParams.get("side");
+    if (!["buy", "sell"].includes(side)) return bad("Pick buy or sell.");
+    const amount = parseAmount(url.searchParams.get("amount")), slippageBps = slippage(url.searchParams.get("slippageBps"));
+    const q = await getQuote(env, cfg, side, amount, slippageBps);
+    return Response.json(await describe(cfg, q, side, amount, slippageBps, await cachedPrices(env, cfg).catch(() => null)));
   }
 
   if (path === "/api/trade" && req.method === "POST") {
     const b = await req.json().catch(() => ({}));
-    if (!ADDR.test(b.wallet || "")) return bad("Connect your wallet first.");
+    if (!ADDR.test(b.wallet || "") || b.wallet === cfg.payout) return bad("Connect your wallet first.");
     if (!["buy", "sell"].includes(b.side)) return bad("Pick buy or sell.");
-    let amount; try { amount = BigInt(b.amount); } catch { return bad("Enter an amount."); }
-    if (amount <= 0n) return bad("Enter an amount.");
-    const slip = BigInt(Math.min(Math.max(Number(b.slippageBps) || 100, 10), 2000));
-    // Price on current reserves. With CLIENT_RPC on, the browser may send the reserves and a blockhash it read
-    // itself (free RPCs block Cloudflare). That only sets the caller's own slippage floor; the program checks the rest.
-    const c = cfg.clientRpc && b.pool && b.blockhash ? clientPool(cfg, { ...b.pool, blockhash: b.blockhash }) : null;
-    const p = c || (await readPool(env, cfg, { fresh: true }));
-    let out = b.side === "buy" ? quote(amount, p.solReserve, p.tokenReserve) : quote(amount, p.tokenReserve, p.solReserve);
-    if (b.side === "sell") out -= (out * BigInt(p.feeBps)) / 10_000n;
-    const minOut = (out * (10_000n - slip)) / 10_000n;
-    if (minOut <= 0n) return bad("That amount is too small.");
-
-    const user = new PublicKey(b.wallet), mint = new PublicKey(cfg.mint), hook = new PublicKey(cfg.hookProgram);
-    const metas = PublicKey.findProgramAddressSync([enc.encode("extra-account-metas"), mint.toBytes()], hook)[0];
-    const keys = [
-      { pubkey: user, isSigner: true, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: p.pool, isSigner: false, isWritable: true },
-      { pubkey: p.vault, isSigner: false, isWritable: true },
-      { pubkey: getAssociatedTokenAddressSync(mint, user, false, TOKEN_2022_PROGRAM_ID), isSigner: false, isWritable: true },
-      { pubkey: p.payout, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      // Transfer hook accounts, passed through to Token-2022.
-      { pubkey: hook, isSigner: false, isWritable: false },
-      { pubkey: metas, isSigner: false, isWritable: false },
-    ];
-    const data = new Uint8Array([...(await disc(b.side)), ...u64le(amount), ...u64le(minOut)]);
-    const ix = new TransactionInstruction({ programId: new PublicKey(cfg.poolProgram), keys, data });
-    const blockhash = c ? String(b.blockhash) : (await latestBlockhash(env)).blockhash;
-    const msg = new TransactionMessage({
-      payerKey: user, recentBlockhash: blockhash,
-      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }), ix],
-    }).compileToV0Message();
-    return Response.json({ transaction: toB64(new VersionedTransaction(msg).serialize()), out: out.toString(), minOut: minOut.toString() });
+    const amount = parseAmount(b.amount), slippageBps = slippage(b.slippageBps);
+    const q = await getQuote(env, cfg, b.side, amount, slippageBps);
+    if (BigInt(q.otherAmountThreshold ?? q.outAmount) <= 0n) return bad("That amount is too small.");
+    const mints = { [cfg.mint]: T22, [SOL_MINT]: T1 };
+    const base = { quoteResponse: q, user: b.wallet, mints, maxWrap: b.side === "buy" ? amount + 2_100_000n : 0n };
+    const info = await describe(cfg, q, b.side, amount, slippageBps, await cachedPrices(env, cfg).catch(() => null));
+    let built = null, refund = b.side === "buy" ? "after" : "none"; // a sell has no refund; a buy's is sent after unless built in
+    try {
+      if (b.side === "buy" && (b.atomic ?? cfg.atomicRefund)) { built = await atomicBuy(env, cfg, base, b.wallet); if (built) refund = built.refund; }
+      if (!built) built = await jup.swapTx(env, cfg, base); // not atomic, or it couldn't be built that way: the plain swap
+    } catch (e) {
+      console.error("trade build", e.message);
+      return bad(/doesn't fit/.test(e.message) ? "That route is too big for one transaction. Try a smaller amount." : "Couldn't build that trade just now. Try again in a moment.", 503);
+    }
+    const { refund: expected, ...numbers } = info; // the quote's `refund` is an amount; here `refund` is the mode, the amount is `refundAmount`
+    return Response.json({ ...numbers, transaction: toB64(built.tx.serialize()), refund, ...(expected ? { refundAmount: expected.amount } : {}), lastValidBlockHeight: built.lvbh });
   }
 
-  if (path === "/api/send" && req.method === "POST") {
+  if (path === "/api/refund/hint" && req.method === "POST") {
     const b = await req.json().catch(() => ({}));
-    let tx; try { tx = VersionedTransaction.deserialize(fromB64(String(b.signed || ""))); } catch { return bad("The signed transaction couldn't be read."); }
-    const program = cfg.poolProgram;
-    const keys = tx.message.staticAccountKeys.map((k) => k.toBase58());
-    if (!tx.message.compiledInstructions.some((ix) => keys[ix.programIdIndex] === program)) return bad("Only $PAPER trades can be sent here.");
-    try { await rpc(env, "sendTransaction", [toB64(tx.serialize()), { encoding: "base64", maxRetries: 3 }]); }
-    catch (e) { return bad(/slippage|0x1772/i.test(e.message) ? "The price moved. Try again." : /insufficient/i.test(e.message) ? "Not enough SOL for this trade plus fees." : "Solana refused the trade. Nothing was sent."); }
-    return Response.json({ signature: sigOf(tx) });
+    if (!/^[1-9A-HJ-NP-Za-km-z]{60,90}$/.test(String(b.sig || ""))) return bad("That isn't a signature.");
+    return Response.json(await hintSignature(env, cfg, b.sig, ctx));
   }
 
   const m = path.match(/^\/api\/tx\/([1-9A-HJ-NP-Za-km-z]{60,90})$/);
   if (m) {
     const s = (await sigStatuses(env, [m[1]]))[m[1]];
-    return Response.json({ status: s || "sent" });
+    return Response.json({ status: s === "confirmed" || s === "failed" ? s : "sent" }); // "processed" is still on its way
   }
   return bad("Not found", 404);
+}
+
+// A buy with its refund in the same transaction. The buyer's own token account is refunded after the swap, by the fee key,
+// which signs here. Returns null when it can't be built (the caller falls back to the plain swap and says "after"), and
+// { refund: "none" } when the buyer's account is one the refund rules don't cover (delegate, close authority...): that
+// account pays the tax, as every account of its kind does.
+async function atomicBuy(env, cfg, base, wallet) {
+  let kp;
+  try { kp = payoutKeypair(env, cfg); } catch { return null; }
+  const ata = getAssociatedTokenAddressSync(new PublicKey(cfg.mint), new PublicKey(wallet), false, TOKEN_2022_PROGRAM_ID);
+  const existing = parseTokenAccount((await getAccounts(env, [ata.toBase58()])).get(ata.toBase58()));
+  const ctx = { address: ata.toBase58(), mint: cfg.mint, payout: cfg.payout, treasury: treasuryAta(cfg.mint, cfg.payout).toBase58(), deny: new Set(cfg.refundDeny), minRefund: 0n };
+  if (existing && classify({ ...existing, withheld: 1n }, ctx).action !== "refund") return { ...(await jup.swapTx(env, cfg, base)), refund: "none" };
+  if (!existing && cfg.refundDeny.includes(wallet)) return { ...(await jup.swapTx(env, cfg, base)), refund: "none" };
+  try {
+    const r = await jup.swapTx(env, cfg, { ...base, forbid: [cfg.payout], extra: [refundIx(cfg.mint, ata, kp.publicKey)] });
+    r.tx.sign([kp]); // the fee key signs its own refund instruction; the buyer's signature slot stays empty for the wallet
+    return { ...r, refund: "atomic" };
+  } catch (e) { console.error("atomic buy", e.message); return null; }
 }

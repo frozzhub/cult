@@ -1,125 +1,79 @@
-// End to end against a local D1 (wrangler's getPlatformProxy) with Solana RPC and Jupiter faked:
-// webhook sells -> tick (snapshot, swap, allocate, send) -> tick (confirm) -> API shows it.
+// End to end against a local D1 (wrangler's getPlatformProxy) with Solana RPC and Jupiter faked (test/engine-fakes.js):
+// webhook sells -> tick (snapshot, sweep, swap of the CULT and of spare SOL, allocate, send) -> tick (confirm) -> API shows it.
 // Also: a batch whose blockhash expired is re-sent once, and confirmed batches are never re-sent.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
-import { rmSync } from "node:fs";
-import { getPlatformProxy } from "wrangler";
-import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import worker from "../src/index.js";
 import { tick } from "../src/indexer.js";
-import { sigOf } from "../src/chain.js";
+import { addr, tokenAccount } from "./fakes.js";
+import { treasuryAta } from "../src/token22.js";
+import { TOK, makeVault, boot, freshS, isSwap, enhancedSell, postHook, installFakes, fastTimers } from "./engine-fakes.js";
 
 const PERSIST = ".wrangler/test-state";
-const addr = () => Keypair.generate().publicKey.toBase58();
 const kp = Keypair.generate();
-const MINT = addr(), POOL = addr(), TEAM = addr(), PAYOUT = kp.publicKey.toBase58();
-const BH = "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi";
+const MINT = addr(), TEAM = addr(), PAYOUT = kp.publicKey.toBase58(), VAULT = makeVault();
 const HOUR = 3_600_000;
 
-let proxy, env;
+let proxy, env, S, restoreFetch, restoreTimers;
 const holders = Array.from({ length: 21 }, () => addr());
-const balances = new Map(holders.map((w, i) => [w, BigInt((i + 1) * 100_000) * 1_000_000n])); // 100k..2.1M tokens
-balances.set(holders[0], 10_000n * 1_000_000n); // $10 at $0.001: below the minimum
-balances.set(POOL, 500_000_000n * 1_000_000n);
-balances.set(TEAM, 50_000_000n * 1_000_000n);
-balances.set(PAYOUT, 1n);
-
-// ---- fake chain ----
-const chainState = { sent: [], confirmed: new Set(), height: 1000, usdc: 0n, lose: null };
-const realFetch = globalThis.fetch;
-function fakeRpc(method, params) {
-  switch (method) {
-    case "getAccountInfo": return { value: { owner: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", data: { parsed: { type: "mint", info: { decimals: 6 } } } } };
-    case "getTokenAccounts": return { token_accounts: [...balances].map(([owner, amount]) => ({ owner, amount: Number(amount) })), cursor: null };
-    case "getMultipleAccounts": return { value: params[0].map((_, i) => (i % 2 ? { lamports: 1 } : null)) };
-    case "getBalance": return { value: 2_000_000_000 };
-    case "getTokenAccountBalance": return { value: { amount: chainState.usdc.toString() } };
-    case "getBlockHeight": return chainState.height;
-    case "getLatestBlockhash": return { value: { blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: chainState.height + 150 } };
-    case "sendTransaction": {
-      const tx = VersionedTransaction.deserialize(Buffer.from(params[0], "base64"));
-      const sig = sigOf(tx);
-      chainState.sent.push({ sig, tx });
-      if (chainState.lose !== sig) chainState.confirmed.add(sig);
-      if (tx.message.staticAccountKeys.length === 2) chainState.usdc += 30_000_000n; // the swap: +30 USDC
-      return sig;
-    }
-    case "getSignatureStatuses": return { value: params[0].map((s) => (chainState.confirmed.has(s) ? { confirmationStatus: "confirmed", err: null } : null)) };
-    default: throw new Error("unmocked " + method);
-  }
-}
-const SOL = "So11111111111111111111111111111111111111112";
-globalThis.fetch = async (input, init) => {
-  const url = String(input?.url || input);
-  if (url.startsWith("https://rpc.test")) {
-    const { method, params } = JSON.parse(init.body);
-    return Response.json({ jsonrpc: "2.0", id: 1, result: fakeRpc(method, params) });
-  }
-  if (url.startsWith("https://jup.test/price")) return Response.json({ [SOL]: { usdPrice: 200 }, [MINT]: { usdPrice: 0.001 } });
-  if (url.startsWith("https://jup.test/swap/v1/quote")) return Response.json({ outAmount: "30000000" });
-  if (url.startsWith("https://jup.test/swap/v1/swap")) {
-    const msg = new TransactionMessage({ payerKey: kp.publicKey, recentBlockhash: BH, instructions: [SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: kp.publicKey, lamports: 1 })] }).compileToV0Message();
-    return Response.json({ swapTransaction: Buffer.from(new VersionedTransaction(msg).serialize()).toString("base64"), lastValidBlockHeight: chainState.height + 150 });
-  }
-  return realFetch(input, init);
-};
 
 before(async () => {
-  rmSync(PERSIST, { recursive: true, force: true });
-  execSync(`node node_modules/wrangler/bin/wrangler.js d1 migrations apply cult-mainnet --local --persist-to ${PERSIST}`, { stdio: "ignore", env: { ...process.env, CI: "1" } });
-  proxy = await getPlatformProxy({ configPath: "wrangler.jsonc", persist: { path: PERSIST + "/v3" } }); // the CLI nests under v3
-  env = {
-    ...proxy.env, VENUE: "pool", HELIUS_KEY: "", PAYOUT_SECRET_KEY: "", DEMO: "0", DRY_RUN: "0", MINT, POOL_ACCOUNT: POOL, PAYOUT_WALLET: PAYOUT, EXCLUDE: TEAM,
-    SOLANA_RPC_URL: "https://rpc.test", JUP_API: "https://jup.test", HELIUS_WEBHOOK_SECRET: "s3cret",
-    PAYOUT_SECRET_KEY: JSON.stringify([...kp.secretKey]),
-    ASSETS: { fetch: () => new Response("") },
-  };
+  restoreTimers = fastTimers();
+  ({ proxy, env } = await boot(PERSIST, { MINT, PAYOUT, kp, EXCLUDE: TEAM, DROP_MINUTES: "60" }));
+  S = freshS({ PAYOUT, vault: VAULT });
+  holders.forEach((w, i) => S.balances.set(w, BigInt((i + 1) * 100_000) * TOK)); // 100k..2.1M tokens
+  S.balances.set(holders[0], 10_000n * TOK); // $10 at $0.001: below the minimum
+  S.balances.set(TEAM, 50_000_000n * TOK);
+  S.atasAll = true; // every USDC account exists, so no holder pays rent and the whole pot is split (rent is tested in review-money)
+  S.sol = 50_000_000 + 45_000 + 100_000_000; // the reserve, the 3 payout fees, and 0.1 SOL of partner fees ($20) to swap
+  S.swapOut = (amount, input) => (input === MINT ? 30_000_000n : amount / 5n); // the CULT leg buys $30 of USDC; SOL is $200
+  restoreFetch = installFakes({ S: () => S, MINT, PAYOUT, env: () => env });
 });
-after(async () => { await proxy?.dispose(); globalThis.fetch = realFetch; });
+after(async () => { await proxy?.dispose(); restoreFetch?.(); restoreTimers?.(); });
 
-const hook = (txs, auth = "s3cret") => worker.fetch(new Request("http://x/api/hook", { method: "POST", headers: { authorization: auth }, body: JSON.stringify(txs) }), env);
 const api = async (p) => (await worker.fetch(new Request("http://x" + p), env)).json();
 
 test("an hour of sells turns into one airdrop, paid exactly once", async () => {
   const t0 = Math.floor(Date.now() / HOUR) * HOUR - HOUR; // last hour
   const sellers = [holders[5], holders[9], addr()];
-  const txs = sellers.map((w, i) => ({
-    signature: "sell" + i, timestamp: Math.floor((t0 + 600_000 * (i + 1)) / 1000), feePayer: w, fee: 5000,
-    tokenTransfers: [{ fromUserAccount: w, toUserAccount: POOL, mint: MINT, tokenAmount: 1_000_000 }],
-    accountData: [{ account: PAYOUT, nativeBalanceChange: 100_000_000 }, { account: w, nativeBalanceChange: 566_000_000 }],
-  }));
-  assert.equal((await hook(txs, "wrong")).status, 401);
-  assert.equal((await (await hook(txs)).json()).added, 3);
-  assert.equal((await (await hook(txs)).json()).added, 0, "Helius retries are ignored");
+  // Three sells of 100,000 CULT: each pays 10,000 CULT (10%) into the vault's withheld amount, $10 at $0.001. That is the pot.
+  const txs = sellers.map((w, i) => enhancedSell({ sig: "sell" + i, wallet: w, at: t0 + 600_000 * (i + 1), gross: 100_000n * TOK, MINT, vault: VAULT }));
+  S.vaultWithheld = 30_000n * TOK;
+  assert.equal((await postHook(worker, env, txs, "wrong")).status, 401);
+  assert.equal((await (await postHook(worker, env, txs)).json()).added, 3);
+  assert.equal((await (await postHook(worker, env, txs)).json()).added, 0, "Helius retries are ignored");
 
   // Lose one payout tx so we can check it's re-sent after its blockhash expires.
   const r1 = await tick(env);
   assert.equal(r1.status, "paying", JSON.stringify(r1));
   const d = await env.DB.prepare("SELECT * FROM drops").first();
-  assert.equal(d.fee_lamports, 300_000_000);
-  assert.ok(d.swap_sig && d.swap_sig !== "dry-run");
+  assert.ok(Math.abs(d.fee_usd - 30) < 1e-9, `the round's tax is $30 of CULT, not ${d.fee_usd}`); // was fee_lamports 300_000_000 (3 x 0.1 SOL) in the pool design
+  assert.ok(d.swap_sig && d.swap_sig !== "dry-run" && d.swap_sig !== "none", "the SOL leg ran");
+  assert.ok(d.cult_sig && d.cult_sig !== "dry-run" && d.cult_sig !== "none", "the CULT leg ran");
+  assert.equal(d.cult_amount, String(30_000n * TOK), "all the swept tax was sold");
+  assert.equal(S.cult, 0n, "the treasury's CULT is gone and the vault's tax is in it first");
+  assert.equal(S.vaultWithheld, 0n, "the sweep moved the tax out of the vault");
 
   const batches = (await env.DB.prepare("SELECT * FROM batches ORDER BY i").all()).results;
   assert.equal(batches.length, 3, "20 eligible holders / 8 per tx"); // 21 holders, 1 under $50; pool, team, payout excluded
   const payouts = (await env.DB.prepare("SELECT * FROM payouts WHERE micro > 0").all()).results;
   assert.equal(payouts.length, 20);
-  assert.ok(!payouts.some((p) => [POOL, TEAM, PAYOUT, holders[0]].includes(p.wallet)));
+  assert.ok(!payouts.some((p) => [VAULT.owner, TEAM, PAYOUT, holders[0]].includes(p.wallet)));
   const total = payouts.reduce((a, p) => a + p.micro, 0);
-  assert.ok(total <= 30_000_000 && total > 29_999_000, "pays the whole 30 USDC minus rounding dust");
+  assert.ok(total <= 50_000_000 && total > 49_999_000, "pays the whole $50 (30 from the CULT, 20 from the SOL) minus rounding dust");
 
   // Second tick: one batch got lost. Not expired yet -> left alone.
   const lostSig = batches[1].sig;
-  chainState.confirmed.delete(lostSig);
-  const sentBefore = chainState.sent.length;
+  S.status = (sig) => (sig === lostSig ? null : { confirmationStatus: "confirmed", err: null });
+  const sentBefore = S.sent.length;
   assert.equal((await tick(env)).status, "paying");
-  assert.equal(chainState.sent.length, sentBefore, "nothing re-sent while the old tx could still land");
+  assert.equal(S.sent.length, sentBefore, "nothing re-sent while the old tx could still land");
 
   // Blockhash expires -> re-sent once, then it confirms.
-  chainState.height += 1000;
+  S.height += 1000;
   await tick(env); // marks it pending and re-sends in the same tick
-  const resent = chainState.sent.slice(sentBefore);
+  const resent = S.sent.slice(sentBefore);
   assert.equal(resent.length, 1, "only the lost batch is re-sent");
   const r4 = await tick(env);
   assert.equal(r4.status, "done", JSON.stringify(r4));
@@ -127,11 +81,13 @@ test("an hour of sells turns into one airdrop, paid exactly once", async () => {
   const final = await env.DB.prepare("SELECT * FROM drops").first();
   assert.equal(final.holders, 20);
   assert.equal(final.usdc_micro, total);
-  const payoutSigs = chainState.sent.filter((s) => s.sig !== d.swap_sig).map((s) => s.sig);
-  assert.equal(new Set(payoutSigs).size, payoutSigs.length, "no transaction sent twice");
+  assert.equal(new Set(S.sent.map((s) => s.sig)).size, S.sent.length, "no transaction sent twice");
+  assert.equal(S.sent.filter(isSwap).length, 2, "one swap for each leg");
 
-  // Nothing new until the next hour.
-  assert.deepEqual(await tick(env), { idle: true });
+  // Nothing new until the next hour (the idle answer carries the fee engine's summary now, so only the flag is compared).
+  const sentDone = S.sent.length;
+  assert.equal((await tick(env)).idle, true);
+  assert.equal(S.sent.length, sentDone);
 });
 
 test("the API shows the airdrop, the Wall and a holder's share", async () => {
@@ -140,39 +96,40 @@ test("the API shows the airdrop, the Wall and a holder's share", async () => {
   assert.equal(s.drops.length, 1);
   assert.equal(s.drops[0].n, 1);
   assert.ok(s.drops[0].tx);
-  assert.ok(Math.abs(s.totals.paidUsdc - 30) < 0.01);
+  assert.ok(Math.abs(s.totals.paidUsdc - 50) < 0.01);
   assert.equal(s.wall.top.length, 3);
-  assert.equal(Math.round(s.wall.top[0].paidUsdc), 20); // 0.1 SOL at $200
+  assert.equal(Math.round(s.wall.top[0].paidUsdc), 10); // 10,000 CULT of tax at $0.001
   assert.equal(s.pending, 0);
   // Members leaderboard: the biggest bag got the most, and amounts match what was paid.
   assert.equal(s.members.length, 20);
   assert.equal(s.members[0].wallet, holders[20]);
-  assert.ok(Math.abs(s.members[0].receivedUsdc - 30 * 2.1 / 23) < 0.001);
+  assert.ok(Math.abs(s.members[0].receivedUsdc - 50 * 2.1 / 23) < 0.001);
   assert.ok(s.members.every((m, i, a) => i === 0 || a[i - 1].receivedUsdc >= m.receivedUsdc), "sorted by USDC received");
   assert.ok(Math.abs(s.members.reduce((a, m) => a + m.receivedUsdc, 0) - s.totals.paidUsdc) < 0.001, "leaderboard adds up to total paid");
-  // Payouts chart: running total ends at the same total.
-  const c = await api("/api/payouts/chart");
-  assert.equal(c.rounds, 1);
-  assert.ok(Math.abs(c.total - s.totals.paidUsdc) < 0.001);
 
   const rich = holders[20];
+  const onChain = (wallet, amount) => S.accounts.set(treasuryAta(MINT, wallet).toBase58(), tokenAccount({ mint: MINT, owner: wallet, amount }));
+  // The balance is read from the wallet’s own account, so someone who bought a minute ago can sell before the next snapshot.
+  const fresh = addr(); onChain(fresh, 5_000n * TOK);
+  assert.equal((await api("/api/wallet/" + fresh)).balance, 5_000);
+  onChain(rich, 2_100_000n * TOK);
   const w = await api("/api/wallet/" + rich);
   assert.equal(w.balance, 2_100_000);
   assert.equal(w.eligible, true);
   assert.ok(w.share > 0.09 && w.share < 0.11, String(w.share));
-  assert.ok(Math.abs(w.receivedUsdc - 30 * 2.1 / 23) < 0.001, String(w.receivedUsdc)); // 2.1M of 23M weighted tokens
+  assert.ok(Math.abs(w.receivedUsdc - 50 * 2.1 / 23) < 0.001, String(w.receivedUsdc)); // 2.1M of 23M weighted tokens
 });
 
 test("DRY_RUN completes the next airdrop without sending anything", async () => {
   const next = Math.floor(Date.now() / HOUR) * HOUR;
   const w = holders[7];
-  await hook([{ signature: "dry1", timestamp: Math.floor((next + 60_000) / 1000), feePayer: w, fee: 5000,
-    tokenTransfers: [{ fromUserAccount: w, toUserAccount: POOL, mint: MINT, tokenAmount: 5 }],
-    accountData: [{ account: PAYOUT, nativeBalanceChange: 50_000_000 }, { account: w, nativeBalanceChange: 1 }] }]);
-  const sentBefore = chainState.sent.length;
+  await postHook(worker, env, [enhancedSell({ sig: "dry1", wallet: w, at: next + 60_000, gross: 100_000n * TOK, MINT, vault: VAULT })]); // $10 of tax
+  const sentBefore = S.sent.length;
   const r = await tick({ ...env, DRY_RUN: "1" }, next + HOUR + 60_000);
   assert.equal(r.status, "done", JSON.stringify(r));
-  assert.equal(chainState.sent.length, sentBefore, "nothing signed or sent");
+  assert.equal(S.sent.length, sentBefore, "nothing signed or sent");
   const d = await env.DB.prepare("SELECT * FROM drops ORDER BY n DESC").first();
-  assert.equal(d.usdc_micro > 9_000_000 && d.usdc_micro <= 10_000_000, true, String(d.usdc_micro)); // 0.05 SOL at $200
+  assert.equal(d.usdc_micro > 9_000_000 && d.usdc_micro <= 10_000_000, true, String(d.usdc_micro)); // the dry round's pot is the tax's USD value: $10
+  assert.equal(d.cult_sig, "dry-run");
+  assert.equal(d.swap_sig, "dry-run");
 });

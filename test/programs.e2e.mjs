@@ -14,10 +14,10 @@ import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, Versione
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedWithTransferHookInstruction, getAccount, getMint } from "@solana/spl-token";
 import worker from "../src/index.js";
 
-const POOL_PROGRAM = "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu";
-const HOOK_PROGRAM = "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2";
+const POOL_PROGRAM = "5xsG4XWGVdazEZSDkjFWu25gCyeCnTuxuPxbmJ1xmA4D";
+const HOOK_PROGRAM = "521AkYhN31VTGPLn75NgeWievYHZoxPwREihCCsppxnF";
 const BIN = process.env.SOLANA_BIN || join(homedir(), "solana", "v4.3.2", "solana-release", "bin");
-const RPC = "http://127.0.0.1:8899";
+const RPC = process.env.E2E_RPC || "http://127.0.0.1:8899"; // E2E_RPC: a validator already running with both programs loaded (see programs-tests/rehearse.mjs)
 const TMP = ".wrangler/e2e";
 const conn = new Connection(RPC, "confirmed");
 let validator, env, mint;
@@ -31,7 +31,7 @@ const ata = (owner) => getAssociatedTokenAddressSync(mint, owner, true, TOKEN_20
 before(async () => {
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(TMP, { recursive: true });
-  validator = spawn(join(BIN, "solana-test-validator.exe"), [
+  if (!process.env.E2E_RPC) validator = spawn(join(BIN, "solana-test-validator.exe"), [
     "--reset", "--quiet", "--ledger", join(TMP, "ledger"),
     "--bpf-program", HOOK_PROGRAM, "target/deploy/paper_hook.so",
     "--bpf-program", POOL_PROGRAM, "target/deploy/paper_pool.so",
@@ -41,10 +41,14 @@ before(async () => {
 
   const kpFile = join(TMP, "creator.json");
   writeFileSync(kpFile, JSON.stringify([...creator.secretKey]));
-  const out = execFileSync(process.execPath, ["scripts/launch.mjs", "--keypair", kpFile, "--payout", payout.publicKey.toBase58(), "--sol", "20",
+  const out = execFileSync(process.execPath, ["scripts/launch.mjs", "--keypair", kpFile, "--payout", payout.publicKey.toBase58(), "--virtual", "20", "--keys-dir", join(TMP, "keys"),
     "--supply", "1000000000", "--name", "Paper Hands", "--symbol", "PAPER", "--uri", "https://example.com/m.json", "--rpc", RPC, "--go"], { encoding: "utf8" });
   console.log(out);
   mint = new PublicKey(out.match(/"MINT": "([1-9A-HJ-NP-Za-km-z]+)"/)[1]);
+  // The launch is one transaction now and the Worker reads at finalized: wait for the pool to get there.
+  const finalized = new Connection(RPC, "finalized");
+  const poolPda = PublicKey.findProgramAddressSync([Buffer.from("pool"), mint.toBytes()], new PublicKey(POOL_PROGRAM))[0];
+  for (let i = 0; i < 120 && !(await finalized.getAccountInfo(poolPda)); i++) await wait(500);
   env = { DEMO: "0", MINT: mint.toBase58(), POOL_PROGRAM, HOOK_PROGRAM, PAYOUT_WALLET: payout.publicKey.toBase58(), SOLANA_RPC_URL: RPC, ASSETS: { fetch: () => new Response("") } };
 });
 after(() => validator?.kill());

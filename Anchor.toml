@@ -6,12 +6,12 @@ resolution = true
 skip-lint = false
 
 [programs.mainnet]
-paper_pool = "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu"
-paper_hook = "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2"
+paper_pool = "5xsG4XWGVdazEZSDkjFWu25gCyeCnTuxuPxbmJ1xmA4D"
+paper_hook = "521AkYhN31VTGPLn75NgeWievYHZoxPwREihCCsppxnF"
 
 [programs.localnet]
-paper_pool = "J6zYGwRTLX17ms2dDZ6yGXP21xfigBwLKvYXho2Aw9Bu"
-paper_hook = "794MkqjE5VxXMVX9pJFK9D6YeK9pKp59K5BkBULfnSG2"
+paper_pool = "5xsG4XWGVdazEZSDkjFWu25gCyeCnTuxuPxbmJ1xmA4D"
+paper_hook = "521AkYhN31VTGPLn75NgeWievYHZoxPwREihCCsppxnF"
 
 [provider]
 cluster = "localnet"

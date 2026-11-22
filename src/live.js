@@ -2,45 +2,44 @@
 import { streakMult, nextStreak } from "./config.js";
 import { cachedPrices } from "./indexer.js";
 import { profilesFor } from "./profiles.js";
+import { getAccounts } from "./chain.js";
+import { treasuryAta, parseTokenAccount } from "./token22.js";
 
 const DAY = 86_400_000;
+
+// DRY_RUN rounds are stored like real ones (status 'done', usdc_micro, 'confirmed' batches) so the whole path can be
+// watched, but nothing was sent. They carry marks, and every figure about USDC paid leaves them out.
+const REAL = "COALESCE(swap_sig, '') != 'dry-run'";    // on drops
+const REAL_BATCH = "b.sig NOT LIKE 'dry-run-%'";        // on batches aliased b
 
 export async function liveState(env, cfg) {
   const db = env.DB;
   const now = Date.now();
-  const { sol, token } = await cachedPrices(env, cfg, now);
-  const [totals, drops, top, latest, pend, last, avg, mintRow, vol, memb] = await db.batch([
-    db.prepare("SELECT COALESCE(SUM(usdc_micro), 0) AS paid, COUNT(*) AS drops FROM drops WHERE status = 'done'"),
-    db.prepare(`SELECT n, at, usdc_micro, holders, (SELECT sig FROM batches b WHERE b.drop_n = d.n AND b.status = 'confirmed' ORDER BY i LIMIT 1) AS tx FROM drops d WHERE status = 'done' AND usdc_micro > 0 ORDER BY n DESC LIMIT 48`),
+  const { token } = await cachedPrices(env, cfg, now);
+  const [totals, drops, top, latest, pend, last, avg, mintRow, vol, memb, dry] = await db.batch([
+    db.prepare(`SELECT COALESCE(SUM(usdc_micro), 0) AS paid, COUNT(*) AS drops FROM drops WHERE status = 'done' AND ${REAL}`),
+    db.prepare(`SELECT n, at, usdc_micro, holders, (SELECT sig FROM batches b WHERE b.drop_n = d.n AND b.status = 'confirmed' ORDER BY i LIMIT 1) AS tx FROM drops d WHERE status = 'done' AND usdc_micro > 0 AND ${REAL} ORDER BY n DESC LIMIT 48`),
     db.prepare("SELECT wallet, sells, paid_usdc, last_at FROM sellers ORDER BY paid_usdc DESC LIMIT 25"),
-    db.prepare("SELECT wallet, sol_out, fee_lamports, sol_usd, at FROM sells ORDER BY at DESC LIMIT 25"),
-    db.prepare(`SELECT COALESCE(SUM(fee_lamports), 0) AS f FROM sells s WHERE drop_n IS NULL
-      OR drop_n IN (SELECT n FROM drops WHERE status IN ('snapshot', 'swap'))`),
-    db.prepare("SELECT holders, weight_total FROM drops WHERE status = 'done' ORDER BY n DESC LIMIT 1"),
-    db.prepare("SELECT COALESCE(AVG(usdc_micro), 0) AS a FROM drops WHERE status = 'done' AND at > ?").bind(now - DAY),
+    db.prepare("SELECT wallet, usd, fee_usd, at FROM sells ORDER BY at DESC LIMIT 25"),
+    // The pot for the coming round: the tax (in USD when it was paid) of every sell not paid out yet.
+    db.prepare(`SELECT COALESCE(SUM(fee_usd), 0) AS f FROM sells s WHERE drop_n IS NULL
+      OR drop_n IN (SELECT n FROM drops WHERE status IN ('snapshot', 'sweep', 'swap'))`),
+    db.prepare(`SELECT holders, weight_total FROM drops WHERE status = 'done' AND ${REAL} ORDER BY n DESC LIMIT 1`),
+    db.prepare(`SELECT COALESCE(AVG(usdc_micro), 0) AS a FROM drops WHERE status = 'done' AND ${REAL} AND at > ?`).bind(now - DAY),
     db.prepare("SELECT v FROM kv WHERE k = 'mint'"),
-    db.prepare("SELECT COALESCE(SUM(sol_lamports / 1e9 * sol_usd), 0) AS v, COUNT(*) AS n FROM trades"),
+    // Volume is what traders moved (gross coin value when it was recorded).
+    db.prepare("SELECT COALESCE(SUM(usd), 0) AS v, COUNT(*) AS n FROM trades"),
     // Members leaderboard: most USDC actually received (confirmed batches only).
     db.prepare(`SELECT p.wallet, SUM(p.micro) AS micro, COUNT(*) AS rounds, h.balance, h.since, s.last_at
-      FROM payouts p JOIN batches b ON b.drop_n = p.drop_n AND b.i = p.batch AND b.status = 'confirmed'
+      FROM payouts p JOIN batches b ON b.drop_n = p.drop_n AND b.i = p.batch AND b.status = 'confirmed' AND ${REAL_BATCH}
       LEFT JOIN holders h ON h.wallet = p.wallet LEFT JOIN sellers s ON s.wallet = p.wallet
       WHERE p.micro > 0 GROUP BY p.wallet ORDER BY micro DESC LIMIT 25`),
+    // The practice rounds (DRY_RUN), so the operator can read their numbers; the page doesn't show them.
+    db.prepare("SELECT n, at, usdc_micro, holders FROM drops WHERE status = 'done' AND swap_sig = 'dry-run' ORDER BY n DESC LIMIT 3"),
   ]);
-  // Meteora launch: what buyers got back, and the pot net of Meteora's cut of those refunds.
-  let refunded = { usd: 0, n: 0 }, pendLamports = pend.results[0].f;
-  if (cfg.venue === "meteora") {
-    const [all, since] = await db.batch([
-      db.prepare("SELECT COALESCE(SUM(r.lamports / 1e9 * t.sol_usd), 0) AS usd, COUNT(*) AS n FROM refunds r LEFT JOIN trades t ON t.sig = r.sig WHERE r.status = 'confirmed'"),
-      db.prepare("SELECT COALESCE(SUM(lamports), 0) AS l FROM refunds WHERE at >= COALESCE((SELECT MAX(at) FROM drops WHERE status NOT IN ('snapshot', 'swap')), 0)"),
-    ]);
-    refunded = { usd: all.results[0].usd, n: all.results[0].n };
-    const keep = (10_000 - cfg.protocolBps) / 10_000;
-    pendLamports = Math.max(0, pendLamports * keep - since.results[0].l * (1 - keep));
-  }
   // Drops are numbered 1, 2, 3... in the order they were paid.
   const doneCount = totals.results[0].drops;
   const shown = drops.results;
-  const usd = (lamports, price) => (lamports / 1e9) * price;
   // X names and pictures for everyone shown on the boards.
   const profiles = await profilesFor(db, [...top.results, ...latest.results, ...memb.results].map((r) => r.wallet)).catch(() => ({}));
   return {
@@ -48,12 +47,12 @@ export async function liveState(env, cfg) {
     profiles,
     price: token,
     eligibleSupply: last.results[0]?.weight_total || 0,
-    totals: { paidUsdc: totals.results[0].paid / 1e6, drops: doneCount, holders: last.results[0]?.holders || 0, volumeUsd: vol.results[0].v, trades: vol.results[0].n, refundedUsd: refunded.usd, refunds: refunded.n },
+    totals: { paidUsdc: totals.results[0].paid / 1e6, drops: doneCount, holders: last.results[0]?.holders || 0, volumeUsd: vol.results[0].v, trades: vol.results[0].n },
     avgDrop24: avg.results[0].a / 1e6,
-    pending: usd(pendLamports, sol),
+    pending: pend.results[0].f,
     wall: {
       top: top.results.map((r) => ({ wallet: r.wallet, paidUsdc: r.paid_usdc, sells: r.sells, at: new Date(r.last_at).toISOString() })),
-      latest: latest.results.map((r) => ({ wallet: r.wallet, soldUsd: usd(r.sol_out + r.fee_lamports, r.sol_usd), paidUsdc: usd(r.fee_lamports, r.sol_usd), at: new Date(r.at).toISOString() })),
+      latest: latest.results.map((r) => ({ wallet: r.wallet, soldUsd: r.usd, paidUsdc: r.fee_usd, at: new Date(r.at).toISOString() })),
     },
     members: memb.results.map((r) => {
       const dec = mintRow.results[0] ? JSON.parse(mintRow.results[0].v).decimals : 6;
@@ -62,6 +61,7 @@ export async function liveState(env, cfg) {
     }),
     drops: shown.map((r, i) => ({ n: doneCount - i, at: new Date(r.at).toISOString(), usdc: r.usdc_micro / 1e6, holders: r.holders, tx: r.tx })),
     decimals: mintRow.results[0] ? JSON.parse(mintRow.results[0].v).decimals : null,
+    ...(dry.results.length ? { dryRuns: dry.results.map((r) => ({ n: r.n, at: new Date(r.at).toISOString(), usdc: r.usdc_micro / 1e6, holders: r.holders })) } : {}),
   };
 }
 
@@ -73,14 +73,18 @@ export async function liveWallet(env, cfg, address) {
     db.prepare("SELECT balance, since FROM holders WHERE wallet = ?").bind(address),
     db.prepare("SELECT last_at FROM sellers WHERE wallet = ?").bind(address),
     db.prepare(`SELECT COALESCE(SUM(p.micro), 0) AS m FROM payouts p JOIN batches b ON b.drop_n = p.drop_n AND b.i = p.batch
-      WHERE p.wallet = ? AND b.status = 'confirmed'`).bind(address),
-    db.prepare(`SELECT d.weight_total, (SELECT weight FROM payouts p WHERE p.drop_n = d.n AND p.wallet = ?) AS mine FROM drops d WHERE status = 'done' ORDER BY n DESC LIMIT 1`).bind(address),
-    db.prepare("SELECT COALESCE(AVG(usdc_micro), 0) AS a FROM drops WHERE status = 'done' AND at > ?").bind(now - DAY),
+      WHERE p.wallet = ? AND b.status = 'confirmed' AND ${REAL_BATCH}`).bind(address),
+    db.prepare(`SELECT d.weight_total, (SELECT weight FROM payouts p WHERE p.drop_n = d.n AND p.wallet = ?) AS mine FROM drops d WHERE status = 'done' AND ${REAL} ORDER BY n DESC LIMIT 1`).bind(address),
+    db.prepare(`SELECT COALESCE(AVG(usdc_micro), 0) AS a FROM drops WHERE status = 'done' AND ${REAL} AND at > ?`).bind(now - DAY),
     db.prepare("SELECT v FROM kv WHERE k = 'mint'"),
   ]);
   const decimals = mintRow.results[0] ? JSON.parse(mintRow.results[0].v).decimals : 6;
   const row = h.results[0];
-  const balance = row ? Number(row.balance) / 10 ** decimals : 0;
+  // The holders table is only as fresh as the last round, so a buyer would wait up to 10 minutes to see anything to sell.
+  // Read the wallet’s own token account for what it holds now; the snapshot is the fallback when the node can’t answer.
+  let raw = row ? Number(row.balance) : 0;
+  try { const ata = treasuryAta(cfg.mint, address).toBase58(); raw = Number(parseTokenAccount((await getAccounts(env, [ata])).get(ata))?.amount ?? 0n); } catch {}
+  const balance = raw / 10 ** decimals;
   const start = Math.max(row?.since ?? now, s.results[0]?.last_at ?? 0);
   const streakDays = row ? Math.floor((now - start) / DAY) : 0;
   const multiplier = streakMult(cfg, streakDays);
@@ -125,24 +129,9 @@ export async function liveChart(env, cfg, range) {
   if (!first?.at) return { range, points: token ? [[now, token]] : [] };
   const from = Math.max(first.at, now - span);
   const [rows, before] = await env.DB.batch([
-    env.DB.prepare("SELECT at, price_sol * sol_usd AS usd FROM trades WHERE at >= ? ORDER BY at LIMIT 20000").bind(from),
-    env.DB.prepare("SELECT price_sol * sol_usd AS usd FROM trades WHERE at < ? ORDER BY at DESC LIMIT 1").bind(from),
+    env.DB.prepare("SELECT at, COALESCE(NULLIF(price_usd, 0), price_sol * sol_usd) AS usd FROM trades WHERE at >= ? ORDER BY at LIMIT 20000").bind(from),
+    env.DB.prepare("SELECT COALESCE(NULLIF(price_usd, 0), price_sol * sol_usd) AS usd FROM trades WHERE at < ? ORDER BY at DESC LIMIT 1").bind(from),
   ]);
   const points = bucketSeries(rows.results, { from, to: now, startPrice: before.results[0]?.usd ?? null, nowPrice: token || null });
   return { range, points };
-}
-// Running total of USDC paid to members, for the Payouts chart: [[at, total, roundPaid], ...], at most `max`
-// points (evenly thinned, always keeping the latest so the line ends at the true total).
-export function cumulativeSeries(drops, max = 160) {
-  let total = 0;
-  const all = drops.map((d) => { total += d.usdc; return [d.at, total, d.usdc]; });
-  if (all.length <= max) return all;
-  const step = (all.length - 1) / (max - 1);
-  return Array.from({ length: max }, (_, i) => all[Math.round(i * step)]);
-}
-
-export async function liveCumulative(env) {
-  const rows = (await env.DB.prepare("SELECT at, usdc_micro FROM drops WHERE status = 'done' AND usdc_micro > 0 ORDER BY at").all()).results;
-  const points = cumulativeSeries(rows.map((r) => ({ at: r.at, usdc: r.usdc_micro / 1e6 })));
-  return { points, total: points.at(-1)?.[1] || 0, rounds: rows.length };
 }
