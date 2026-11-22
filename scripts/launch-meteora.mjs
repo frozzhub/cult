@@ -62,12 +62,24 @@ export function curveParams({ startMcap = 30, gradMcap = 400, feeBps = FEE_BPS }
 if (args.dry) { for (const [s,g] of [[30,400],[28,420],[2,8],[1,4]]) { const p = curveParams({startMcap:s,gradMcap:g}); try { validateConfigParameters({...p, leftoverReceiver: treasury.publicKey}); console.log(s,g,"ok threshold SOL", Number(p.migrationQuoteThreshold)/1e9, "supply%", p.percentageSupplyOnMigration ?? "") } catch(e){ console.log(s,g,"ERR",e.message) } } process.exit(0); }
 if (import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}` || import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
   const out = `program-keys/${cluster}-meteora.json`;
-  if (existsSync(out) && !args.force) { console.error(`${out} exists: $CULT is already launched on ${cluster}. Pass --force for another.`); process.exit(1); }
+  if (existsSync(out) && !args.force && !args["config-only"]) { console.error(`${out} exists: $CULT is already launched on ${cluster}. Pass --force for another.`); process.exit(1); }
   const connection = new Connection(rpc, "confirmed");
   const client = new DynamicBondingCurveClient(connection, "confirmed");
   const params = curveParams({ startMcap: Number(args["start-mcap"] || 30), gradMcap: Number(args["grad-mcap"] || 400) });
   validateConfigParameters({ ...params, leftoverReceiver: treasury.publicKey });
   console.log(`graduates at ${Number(params.migrationQuoteThreshold) / 1e9} SOL raised; fee ${FEE_BPS / 100}% in SOL both ways`);
+
+  // --config-only: just the config (10% fee, treasury as fee claimer). Any DBC launcher can then create the
+  // coin on it by its pubkey. Saved to program-keys/<cluster>-config-<name>.json.
+  if (args["config-only"]) {
+    const configKp = Keypair.generate();
+    const tx = await client.partner.createConfig2({ ...params, config: configKp.publicKey, feeClaimer: treasury.publicKey, leftoverReceiver: treasury.publicKey, quoteMint: NATIVE_MINT, payer: payer.publicKey });
+    const sig = await sendAndConfirmTransaction(connection, tx, [payer, configKp], { commitment: "confirmed" });
+    const file = `program-keys/${cluster}-config-${args.label || "test"}.json`;
+    writeFileSync(file, JSON.stringify({ DBC_CONFIG: configKp.publicKey.toBase58(), PAYOUT_WALLET: treasury.publicKey.toBase58(), graduatesAtSol: Number(params.migrationQuoteThreshold) / 1e9, sig, cluster, at: new Date().toISOString() }, null, 2));
+    console.log("config:", configKp.publicKey.toBase58(), "tx:", sig);
+    process.exit(0);
+  }
 
   const configKp = Keypair.generate(), mintKp = Keypair.generate();
   const tx = await client.partner.createConfigAndPool({

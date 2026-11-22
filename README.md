@@ -104,7 +104,7 @@ Keys (deployer = upgrade authority, payout, test trader) are in `program-keys/` 
 Devnet SOL: the CLI faucet rate-limits this PC. `devnet-pow` is installed (built with Rust 1.76) but needs a small CLI airdrop to start.
 ## Devnet site (deployed 2026-11-13)
 
-**https://paper-hands-devnet.jamescollinscfc123.workers.dev**: the live devnet launch. Add `?demo` to see it full of sample data (devnet only, labelled "sample data").
+The devnet Worker `paper-hands-devnet` (on workers.dev) runs the devnet launch. Add `?demo` to see it full of sample data (devnet only, labelled "sample data").
 
 - Deploy: `wrangler deploy --env devnet` (D1 `paper-hands-devnet`, cron every 5 min, DRY_RUN).
 - **Trading works**: on devnet the page reads the pool and sends trades through the public RPC itself (`CLIENT_RPC`), and the Worker only builds the transaction. Smoke-tested through the live site: buy with no fee, sell with exactly 15.00% to payout.
