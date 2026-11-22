@@ -140,34 +140,40 @@ export async function swapTx(env, cfg, { quoteResponse, user, mints, maxWrap, fo
 
 /* ---------- the treasury's own swap ---------- */
 
+const FEE_RENT_SLACK = 6_000_000n; // lamports the wallet's SOL may drop by in one swap: fees (priority capped at 3,000,000) and account rent
+
 // Simulate and compare balances: the output account must gain at least `minOut`, and what leaves must not exceed
 // `amount`, and the wallet's SOL may drop only by fees and account rent (plus `amount` when SOL is sold). A failed simulation is a refusal.
-export async function outcomeProblem(env, tx, { user, inputMint, outputMint, outputProgram, inputProgram, amount, minOut }) {
+// Output SOL (the refill): Jupiter closes its wrapped-SOL account to the wallet, so the gain is the wallet's lamports, less the same
+// fee and rent slack. `keep`: token accounts that must not lose anything (the CULT treasury, when USDC is what is sold).
+export async function outcomeProblem(env, tx, { user, inputMint, outputMint, outputProgram, inputProgram, amount, minOut, keep = [] }) {
   const u = new PublicKey(user);
   const ata = (m, p) => getAssociatedTokenAddressSync(new PublicKey(m), u, true, new PublicKey(p)).toBase58();
   const outA = ata(outputMint, outputProgram), inA = inputMint === SOL_MINT ? null : ata(inputMint, inputProgram);
-  const watch = [user, outA, ...(inA ? [inA] : [])];
+  const watch = [user, outA, ...(inA ? [inA] : []), ...keep];
   const before = await chain.getAccounts(env, watch), lamportsBefore = await chain.solBalance(env, user);
   const sim = await chain.simulate(env, tx, watch);
   if (sim.err) return "the swap fails in simulation";
   const tokens = (bytes) => (bytes ? parseTokenAccount(bytes)?.amount ?? 0n : 0n);
-  if (tokens(sim.after.get(outA)?.data) - tokens(before.get(outA)) < BigInt(minOut)) return "the swap would pay out less than its quote";
+  const lamportsAfter = sim.after.get(user)?.lamports ?? 0n;
+  if (outputMint === SOL_MINT ? lamportsAfter - lamportsBefore < BigInt(minOut) - FEE_RENT_SLACK : tokens(sim.after.get(outA)?.data) - tokens(before.get(outA)) < BigInt(minOut)) return "the swap would pay out less than its quote";
   if (inA && tokens(before.get(inA)) - tokens(sim.after.get(inA)?.data) > BigInt(amount)) return "the swap would take more than it should";
+  if (keep.some((a) => tokens(sim.after.get(a)?.data) < tokens(before.get(a)))) return "the swap would take another token";
   // Every leg: the wallet's SOL may drop by fees and account rent, plus the amount when SOL is what is sold (review N6).
-  if (lamportsBefore - (sim.after.get(user)?.lamports ?? 0n) > (inA ? 0n : BigInt(amount)) + 6_000_000n) return "the swap would take more SOL than it should";
+  if (lamportsBefore - lamportsAfter > (inA ? 0n : BigInt(amount)) + FEE_RENT_SLACK) return "the swap would take more SOL than it should";
   return null;
 }
 
 // A signed swap for the payout wallet: Jupiter's quote, inspected instructions, a transaction we compiled, simulated
 // against the quote, then signed. `amount` raw units of inputMint into outputMint.
-export async function treasurySwap(env, cfg, kp, { inputMint, inputProgram, outputMint, outputProgram, amount, quoteResponse }) {
+export async function treasurySwap(env, cfg, kp, { inputMint, inputProgram, outputMint, outputProgram, amount, quoteResponse, keep }) {
   const user = kp.publicKey.toBase58();
   const q = quoteResponse || (await quote(env, cfg, { inputMint, outputMint, amount, slippageBps: cfg.slippageBps }));
   const { tx, lvbh } = await swapTx(env, cfg, {
     quoteResponse: q, user, mints: { [inputMint]: inputProgram, [outputMint]: outputProgram },
     maxWrap: inputMint === SOL_MINT ? BigInt(amount) + 2_100_000n : 0n,
   });
-  const why = await outcomeProblem(env, tx, { user, inputMint, outputMint, inputProgram, outputProgram, amount, minOut: q.otherAmountThreshold ?? q.outAmount });
+  const why = await outcomeProblem(env, tx, { user, inputMint, outputMint, inputProgram, outputProgram, amount, minOut: q.otherAmountThreshold ?? q.outAmount, keep });
   if (why) throw new Error(`Jupiter's swap was refused (${why}).`);
   tx.sign([kp]);
   return { tx, sig: chain.sigOf(tx), lvbh, outMicro: Number(q.outAmount || 0), minOut: Number(q.otherAmountThreshold ?? q.outAmount) };

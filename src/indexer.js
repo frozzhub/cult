@@ -5,7 +5,8 @@
 //                    current airdrop one step at a time:
 //   snapshot  every holder, their streak boost and weight; who needs a USDC account opened
 //   sweep     the withheld CULT in pool vaults and the mint goes to the treasury (the payout wallet's token account)
-//   swap      the treasury's CULT -> USDC on Jupiter (as much as fits MAX_SWAP_IMPACT_BPS), then spare SOL -> USDC (SOL quote only)
+//   swap      the treasury's CULT -> USDC on Jupiter (as much as fits MAX_SWAP_IMPACT_BPS), then spare SOL -> USDC (SOL quote)
+//             or USDC -> SOL when the wallet's SOL is low (USDC quote)
 //   allocate  split the wallet's USDC by weight into fixed batches
 //   paying    sign + send each batch; check them on later ticks until all land
 //   done
@@ -54,6 +55,18 @@ export function allocate(rows, pot, min, batchSize, rent = 0) {
 
 // What opening one USDC account costs, in micro-USDC at this SOL price. Rounded up: toward the house.
 export const rentMicro = (solUsd) => Math.ceil((chain.ATA_RENT * solUsd) / 1000);
+
+// The SOL refill's size in micro-USDC, or 0 for nothing to do. Below `refillBelow` lamports it asks for enough to reach `refillTo` at
+// this SOL price plus REFILL_MARGIN_BPS (fees, slippage, a stale price), never more than REFILL_MAX_USD or half the wallet's USDC (the
+// holders still get paid from the rest), and never less than MIN_SWAP_USD. Unknown SOL price: nothing.
+const REFILL_MARGIN_BPS = 300;
+const REFILL_QUOTE_FLOOR = 0.9; // a quote giving under this share of the SOL the price implies is refused
+export function refillMicro(cfg, solLamports, usdcMicro, solUsd) {
+  if (!(solUsd > 0) || !(solLamports < cfg.refillBelow)) return 0;
+  const want = Math.ceil(((cfg.refillTo - solLamports) * solUsd * (10_000 + REFILL_MARGIN_BPS)) / 10_000_000); // lamports x USD per SOL = 1000 x micro-USDC
+  const micro = Math.min(want, Math.floor(cfg.refillMaxUsd * 1e6), Math.floor(usdcMicro / 2));
+  return micro >= Math.round(cfg.minSwapUsd * 1e6) && micro > 0 ? micro : 0;
+}
 
 // Only wallets with a key can be paid. A program-owned address (a pool's vault owner) is off the curve: it would
 // otherwise be paid most of the pot into an account nobody can move.
@@ -429,6 +442,57 @@ async function cultLeg(env, cfg, d, fence) {
   return { d, done: false };
 }
 
+// Leg 2 of the swap on a USDC curve: nothing else refills the payout wallet's SOL (refunds, sweeps, swaps, payouts and every new
+// holder's USDC account run on it), so below REFILL_BELOW_SOL this sells USDC for SOL (see refillMicro). refill_sig: the signature, or
+// 'dry-run' / 'none' (nothing to do) / 'refused' (a check said no; the reason is in `error`). A refusal skips the leg, it never holds
+// the holders' payout: the next round looks again. A swap that was signed and saved is another matter, it is settled from its signature
+// like the CULT leg (failed or lost: cleared and tried again next tick). Returns { d, done }.
+async function refillLeg(env, cfg, d, fence) {
+  const db = env.DB;
+  if (d.refill_sig) {
+    if (["dry-run", "none", "refused"].includes(d.refill_sig)) return { d, done: true };
+    const st = (await settleSent(env, [{ sig: d.refill_sig, lvbh: d.refill_lvbh }]))[d.refill_sig];
+    if (st === "confirmed") return { d, done: true };
+    if (st === "failed" || st === "lost") {
+      d = await setDrop(db, d.n, { refill_sig: null, refill_lvbh: null, refill_usdc: null, refill_lamports: null, error: "The SOL refill didn't land, retrying." }, "status = 'swap' AND refill_sig = ?", d.refill_sig);
+    }
+    return { d, done: false };
+  }
+  const skip = async (mark, error) => ({ d: await setDrop(db, d.n, { refill_sig: mark, ...(error ? { error } : {}) }, "status = 'swap' AND refill_sig IS NULL"), done: true });
+  if (cfg.dryRun) return skip("dry-run");
+  if (env.SWAP === "off") return skip("none");
+  let micro = 0, s = null, refused = null;
+  try {
+    const sol = Number(await chain.solBalance(env, cfg.payout));
+    if (sol < cfg.refillBelow) { // the price and the USDC are only read when SOL is low
+      const { sol: price } = await cachedPrices(env, cfg);
+      if (!(price > 0)) throw new Error("No SOL price yet.");
+      micro = refillMicro(cfg, sol, Number(await chain.usdcBalance(env, cfg.payout)), price);
+      if (micro) {
+        const q = await jup.quote(env, cfg, { inputMint: chain.payMint(env).toBase58(), outputMint: SOL_MINT, amount: String(micro), slippageBps: cfg.slippageBps });
+        // A quote far under the SOL price would bleed up to REFILL_MAX_USD every round, since SOL would still be low.
+        if (Number(q.outAmount) * price < micro * 1000 * REFILL_QUOTE_FLOOR) throw new Error("Jupiter's quote for SOL is far below the SOL price.");
+        s = await jup.treasurySwap(env, cfg, chain.payoutKeypair(env, cfg), {
+          inputMint: chain.payMint(env).toBase58(), inputProgram: TOKEN_PROGRAM_ID.toBase58(), outputMint: SOL_MINT, outputProgram: TOKEN_PROGRAM_ID.toBase58(),
+          amount: String(micro), quoteResponse: q, keep: [treasuryAta(cfg.mint, cfg.payout).toBase58()],
+        });
+      }
+    }
+  } catch (e) { refused = e.message; }
+  if (refused) { console.error("refill", refused); return skip("refused", `SOL refill skipped: ${refused}`.slice(0, 300)); }
+  if (!s) return skip("none");
+  await fence();
+  // Claimed (only while no signature is saved) before it is sent, like the CULT leg.
+  d = await setDrop(db, d.n, { refill_sig: s.sig, refill_lvbh: s.lvbh || (await chain.blockHeight(env)) + 150, refill_usdc: micro, refill_lamports: s.outMicro }, "status = 'swap' AND refill_sig IS NULL");
+  if (d.refill_sig !== s.sig) return { d, done: false };
+  await chain.sendTx(env, s.tx);
+  for (let i = 0; i < 8; i++) { // usually lands in a few seconds
+    await new Promise((r) => setTimeout(r, 2500));
+    if ((await chain.sigStatuses(env, [s.sig]))[s.sig] === "confirmed") return { d, done: true };
+  }
+  return { d, done: false };
+}
+
 const STEPS = {
   async snapshot(env, cfg, d, now, fence) {
     const db = env.DB;
@@ -501,12 +565,18 @@ const STEPS = {
   },
 
   // Two legs, each its own transaction with its signature saved before it is sent: the treasury's CULT -> USDC, then
-  // spare SOL -> USDC (only with a SOL quote). The round's pot is the wallet's USDC once both are settled.
+  // spare SOL -> USDC (SOL quote) or, with a USDC quote, USDC -> SOL when the wallet's SOL runs low. The round's pot is the
+  // wallet's USDC once both are settled.
   async swap(env, cfg, d, now, fence) {
     const db = env.DB;
     const cult = await cultLeg(env, cfg, d, fence);
     if (!cult.done) return cult.d;
     d = cult.d;
+    if (cfg.quoteSym === "USDC") {
+      const refill = await refillLeg(env, cfg, d, fence);
+      if (!refill.done) return refill.d;
+      d = refill.d;
+    }
     if (d.swap_sig) {
       if (d.swap_sig === "dry-run" || d.swap_sig === "none") return setDrop(db, d.n, { status: "allocate" }, "status = 'swap'");
       const st = (await settleSent(env, [{ sig: d.swap_sig, lvbh: d.swap_lvbh }]))[d.swap_sig];
@@ -520,7 +590,7 @@ const STEPS = {
     // SWAP=off: no Jupiter (devnet). The pot is whatever payout token the wallet already holds.
     if (env.SWAP === "off") return setDrop(db, d.n, { swap_sig: "none", swap_lamports: 0, status: "allocate" }, "status = 'swap'");
     // A USDC quote: the curve's fees already arrive as USDC (the pot's own token), so there is no SOL income to sell, and the SOL in
-    // the wallet is the team's gas and rent float. Anything but SOL skips this leg (fails closed); the CULT leg above still ran.
+    // the wallet is the gas and rent float that refillLeg tops up. Anything but SOL skips this leg (fails closed); the CULT leg above still ran.
     if (cfg.quoteSym !== "SOL") return setDrop(db, d.n, { swap_sig: "none", swap_lamports: 0, status: "allocate" }, "status = 'swap'");
 
     // New holders pay for their own USDC accounts out of their payout (see allocate), so the swap keeps back only

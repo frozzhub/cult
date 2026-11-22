@@ -47,6 +47,10 @@ export function config(env) {
     claimMinutes: num(env.CLAIM_MINUTES, 60, 1),    // partner trading fees (SOL) are claimed this often
     autoMigrate: env.AUTO_MIGRATE !== "0",
     solReserve: Number(env.SOL_RESERVE_LAMPORTS || 50_000_000),
+    // SOL refill (USDC quote only): below REFILL_BELOW_SOL the round sells USDC for SOL, up to REFILL_TO_SOL and REFILL_MAX_USD.
+    refillBelow: Math.round(num(env.REFILL_BELOW_SOL, 0.3) * 1e9), // lamports
+    refillTo: Math.round(num(env.REFILL_TO_SOL, 0.6) * 1e9),       // lamports
+    refillMaxUsd: num(env.REFILL_MAX_USD, 50),
     migrateMinLamports: Number(env.MIGRATE_MIN_LAMPORTS || 150_000_000), // payout SOL needed before the migration is sent
     minPayoutMicro: Math.round(Number(env.MIN_PAYOUT_USDC || 0.01) * 1e6),
     batchSize: Number(env.BATCH_SIZE || 8),

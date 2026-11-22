@@ -13,7 +13,7 @@ CULT is a Solana memecoin with a 10% sell tax that is paid back to holders in US
 - Every 10 minutes a round sells the treasury's CULT for USDC on Jupiter and splits the USDC among holders by weight. Weight is balance times a devotion multiplier: 1.25x after 7 days without selling, 1.5x after 30. Wallets holding under 50 USD are skipped.
 - The curve's trading fees arrive as USDC, straight into the holder pot. The round no longer swaps SOL: it only sells the swept 10% tax (CULT) for USDC.
 - The site's Buy and Sell use SOL. Jupiter routes SOL to USDC to CULT.
-- The payout wallet's SOL is a float for gas, refunds and new holders' USDC account rent. The operator tops it up by hand.
+- The payout wallet's SOL is a float for gas, refunds and new holders' USDC account rent. Each round tops it back up from the USDC when it runs low (at most $50 a round, never more than half the pot).
 - Payouts go out in batches of 8 per transaction. Every send is saved before it is made and checked from its signature afterwards, so a crash cannot pay a holder twice.
 
 The payout wallet is `HrEKXpJvACWNxQJgQGhqNmJgQpwgC6kjtPD4dyDK2AH5`. It is the mint's withdraw-withheld authority and the curve's fee claimer. The Meteora DBC config address is `<USDC DBC config, published at launch>`.

@@ -61,6 +61,7 @@ export const freshS = ({ PAYOUT, vault }) => ({
   impact: "0.0001",           // Jupiter's priceImpactPct: a fraction, or (amount) => fraction; it counts the coin's own tax
   instructionsHook: null,     // (answer) => void: change Jupiter's swap-instructions answer (hostile tests)
   simShort: 0n, simTake: 0n, simErr: null, // the simulation pays out this much less / takes this much more / fails
+  simOther: 0n,               // a USDC -> SOL simulation that also takes this much raw CULT out of the treasury
   lastSwapOut: 0n, lastSwapMeta: null, quotes: [],
 });
 
@@ -145,7 +146,9 @@ export function installFakes({ S: getS, MINT, PAYOUT, env: getEnv }) {
         const sig = sigOf(tx);
         if (S.onSend) await S.onSend(tx, sig);
         S.sent.push({ sig, tx });
-        if (isSwap({ tx }) && S.lastSwapMeta) { // the fake Jupiter swap lands: USDC in, and the CULT out when it was a CULT sale
+        if (isSwap({ tx }) && S.lastSwapMeta && S.lastSwapMeta.outputMint === SOL) { // the refill lands: USDC out, native SOL in (Jupiter closes the wrapped-SOL account to the wallet)
+          S.usdc -= BigInt(S.lastSwapMeta.amount); S.sol += Number(S.lastSwapOut);
+        } else if (isSwap({ tx }) && S.lastSwapMeta) { // the fake Jupiter swap lands: USDC in, and the CULT out when it was a CULT sale
           S.usdc += S.lastSwapOut; S.usdcExists = true; // Jupiter's setup opens the payout wallet's USDC account
           if (S.lastSwapMeta.inputMint === MINT) S.cult -= BigInt(S.lastSwapMeta.amount);
         }
@@ -154,10 +157,11 @@ export function installFakes({ S: getS, MINT, PAYOUT, env: getEnv }) {
       }
       case "simulateTransaction": {
         const m = S.lastSwapMeta;
+        const toSol = m.outputMint === SOL, fromUsdc = m.inputMint === USDC_MINT; // the refill: USDC -> native SOL
         return simulation(params, (a) => {
-          if (a === PAYOUT) return { lamports: BigInt(S.sol) - (m.inputMint === SOL ? BigInt(m.amount) + S.simTake : 0n) };
-          if (a === usdcOf()) return { lamports: 2_039_280, bytes: tokenAccount({ mint: USDC_MINT, owner: PAYOUT, amount: S.usdc + S.lastSwapOut - S.simShort, ext: false }) };
-          if (a === treasury) { const left = S.cult - BigInt(m.amount) - S.simTake; return { lamports: 2_039_280, bytes: tokenAccount({ mint: MINT, owner: PAYOUT, amount: left < 0n ? 0n : left }) }; } // a run that lost a race sells what is already gone
+          if (a === PAYOUT) return { lamports: BigInt(S.sol) - (m.inputMint === SOL ? BigInt(m.amount) + S.simTake : 0n) + (toSol ? S.lastSwapOut - S.simShort : 0n) };
+          if (a === usdcOf()) return { lamports: 2_039_280, bytes: tokenAccount({ mint: USDC_MINT, owner: PAYOUT, amount: fromUsdc ? S.usdc - BigInt(m.amount) - S.simTake : S.usdc + S.lastSwapOut - S.simShort, ext: false }) };
+          if (a === treasury) { const left = S.cult - (fromUsdc ? S.simOther : BigInt(m.amount) + S.simTake); return { lamports: 2_039_280, bytes: tokenAccount({ mint: MINT, owner: PAYOUT, amount: left < 0n ? 0n : left }) }; } // a run that lost a race sells what is already gone
           return null;
         }, { err: S.simErr });
       }
@@ -196,7 +200,7 @@ export function installFakes({ S: getS, MINT, PAYOUT, env: getEnv }) {
       if (S.onSwap) await S.onSwap();
       const b = JSON.parse(init.body), q = b.quoteResponse;
       S.lastSwapOut = BigInt(q.outAmount);
-      S.lastSwapMeta = { inputMint: q.inputMint, amount: q.inAmount };
+      S.lastSwapMeta = { inputMint: q.inputMint, outputMint: q.outputMint, amount: q.inAmount };
       const prog = (m) => (m === MINT ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID);
       const answer = jupSwapInstructions({ user: b.userPublicKey, inputMint: q.inputMint, outputMint: q.outputMint, inputProgram: prog(q.inputMint), outputProgram: prog(q.outputMint), amount: q.inAmount });
       if (S.instructionsHook) S.instructionsHook(answer);
