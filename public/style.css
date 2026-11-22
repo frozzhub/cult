@@ -38,6 +38,9 @@ nav.tabs button.on { color: var(--text); background: var(--surface); }
 .btn.accent { background: var(--accent); color: #fff; }
 .btn.accent:hover { background: #1f66b5; }
 .btn.small { padding: 7px 13px; font-size: 13px; border-radius: 9px; }
+.btn.small.icon { padding: 7px 9px; color: var(--muted); }
+.btn.small.icon:hover { color: var(--text); }
+.btn.small.icon svg { display: block; }
 .btn:disabled { opacity: .45; cursor: default; }
 
 /* header buttons: Launch (not built yet: shaded, says so on hover/tap) + Connect */
